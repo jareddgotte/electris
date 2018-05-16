@@ -1,0 +1,23 @@
+{
+  "name": "electris",
+  "version": "0.0.1",
+  "description": "js-tetris on Electron",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --debug",
+    "rebuild": "npm rebuild --runtime=electron --target=1.7.10 --disturl=https://atom.io/download/atom-shell --abi=59",
+    "test": "standard --verbose | snazzy"
+  },
+  "author": "Jared Gotte",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "1.8.6",
+    "eslint": "4.19.1",
+    "eslint-config-standard": "11.0.0",
+    "eslint-plugin-import": "2.11.0",
+    "eslint-plugin-node": "6.0.1",
+    "eslint-plugin-promise": "3.7.0",
+    "eslint-plugin-standard": "3.1.0"
+  }
+}

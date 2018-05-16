@@ -1,0 +1,122 @@
+html {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+body {
+  background: #fff;
+  color: #000;
+  font: 14px/1.1 Arial, Helvetica, sans-serif;
+  -webkit-app-region: drag;
+  margin: 0;
+  margin-top: -4px;
+  width: 100%;
+  height: 100%;
+}
+h1 {
+  font-size: 3em;
+  line-height: 1.1;
+}
+h2 {
+  font-size: 2.3em;
+  line-height: 1.1;
+}
+h3 {
+  font-size: 1.3em;
+  line-height: 1.1;
+}
+strong,
+b {
+  font-weight: bold;
+}
+#closeButton {
+  -webkit-app-region: no-drag;
+  float: right;
+  position: fixed;
+  top: 5px;
+  right: 5px;
+}
+#main {
+  color: #000;
+  margin: 4px auto;
+  width: 712px;
+  overflow: hidden;
+}
+#main #tetris-banner {
+  text-align: center;
+  margin: 0 auto 4px;
+  display: block;
+}
+#main ul,
+#main ol {
+  padding-left: 0;
+}
+#canvas {
+  border-top: 2px solid black;
+  border-bottom: 2px solid black;
+  margin: 0 auto;
+  display: block;
+  float: left;
+  width: 200px;
+  height: 400px;
+}
+.panel {
+  border: 2px solid black;
+  width: 250px;
+  height: 400px;
+  float: left;
+}
+.panel h2 {
+  line-height: 1.5;
+  text-align: center;
+}
+.panel h3 {
+  display: block;
+  float: left;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+.panel ul li {
+  margin-left: 3px;
+  line-height: 1.4;
+  overflow: hidden;
+}
+/* Leading dots trick from http://www.w3.org/Style/Examples/007/leaders.en.html */
+.panel#public-controls ul li div:before {
+  float: left;
+  width: 0;
+  white-space: nowrap;
+  content:
+    ". . . . . . . . . . . . . . . . . . . . "
+    ". . . . . . . . . . . . . . . . . . . . "
+    ". . . . . . . . . . . . . . . . . . . . "
+    ". . . . . . . . . . . . . . . . . . . . ";
+}
+.panel#public-controls ul li div, .panel ul li h3:first-child {
+  float: left;
+  width: 130px;
+  padding-left: 10px;
+  overflow: hidden;
+}
+.panel#public-controls ul li span:first-child {
+  background: white;
+}
+.panel#public-controls ul li span {
+  font-size: .9em;
+  padding-left: 5px;
+}
+.panel#high-scores ol {
+  list-style-type: lower-roman;
+  margin-left: 36px;
+}
+.panel#high-scores ol li {
+  line-height: 1.4;
+}
+#footer {
+  overflow: hidden;
+  margin: 16px auto 0;
+  width: 712px;
+}
+#footer a {
+  -webkit-app-region: no-drag;
+}
