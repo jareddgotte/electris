@@ -11,7 +11,8 @@
   <link rel="stylesheet" href="css/main.css">
 </head>
 <body>
-  <button id="closeButton">x</button>
+  <button class="topButton" id="minimizeButton">&ndash;</button>
+  <button class="topButton" id="closeButton">&times;</button>
   <main id="main">
     <!-- Banner inspired from font: The FontStruction "Tetromino (by Piotr
     Klarowski)" (http://fontstruct.com/fontstructions/show/118906) by
@@ -28,43 +29,43 @@
           <div>
             <span>Rotate</span>
           </div>
-          <span><b>Up</b> Arrow Key</span>
+          <span><strong>Up</strong> Arrow Key</span>
         </li>
         <li>
           <div>
             <span>Move Left</span>
           </div>
-          <span><b>Left</b> Arrow Key</span>
+          <span><strong>Left</strong> Arrow Key</span>
         </li>
         <li>
           <div>
             <span>Move Right</span>
           </div>
-          <span><b>Right</b> Arrow </span></li>
+          <span><strong>Right</strong> Arrow </span></li>
         <li>
           <div>
             <span>Move Down</span>
           </div>
-          <span><b>Down</b> Arrow </span>
+          <span><strong>Down</strong> Arrow </span>
         </li>
         <li>
           <div>
             <span>Instantly Move Down</span>
           </div>
-          <span><b>Space</b> Bar</span>
+          <span><strong>Space</strong> Bar</span>
         </li>
         <br>
         <li>
           <div>
             <span>Pause Game</span>
           </div>
-          <span><b>S</b> or <b>P</b> Key</span>
+          <span><strong>S</strong> or <strong>P</strong> Key</span>
         </li>
         <li>
           <div>
             <span>Restart Game</span>
           </div>
-          <span><b>R</b> Key</span>
+          <span><strong>R</strong> Key</span>
         </li>
       </ul>
     </section>
@@ -75,18 +76,23 @@
     </section>
   </main>
   <div id="footer">
-    <span>&copy; 2018 <a href="http://www.jaredgotte.com/" target="_blank">Jared
-    Gotte</a>; licensed under <a href="https://opensource.org/licenses/ISC" target="_blank">ISC</a></span>
+    <span>&copy; 2018 <a href="http://www.jaredgotte.com/">Jared Gotte</a>; licensed under <a href="https://opensource.org/licenses/ISC">ISC</a></span>
   </div>
 
   <script src="../built/tetris.js"></script>
   <script>
-    // Close window when "X button" at top right is clicked
-    const remote = require('electron').remote
+    const {remote} = require('electron')
+
+    // Minimize window when "– button" at top right is clicked  
+    const minimizeButton = document.getElementById('minimizeButton')
+    minimizeButton.addEventListener('click', function (event) {
+      remote.getCurrentWindow().close()
+    })
+
+    // Close window when "× button" at top right is clicked
     const closeButton = document.getElementById('closeButton')
     closeButton.addEventListener('click', function (event) {
-      const window = remote.getCurrentWindow()
-      window.close()
+      remote.getCurrentWindow().close()
     })
 
     // Open any links externally by default

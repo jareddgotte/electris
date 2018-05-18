@@ -25,16 +25,23 @@ h3 {
   font-size: 1.3em;
   line-height: 1.1;
 }
-strong,
-b {
-  font-weight: bold;
-}
-#closeButton {
+.topButton {
   -webkit-app-region: no-drag;
-  float: right;
   position: fixed;
   top: 5px;
+  padding: 0;
+  width: 24px;
+  height: 21px;
+}
+#closeButton {
   right: 5px;
+  font-size: 1.7em;
+  line-height: 0.8;
+}
+#minimizeButton {
+  right: 32px;
+  font-size: 1.2em;
+  line-height: 0;
 }
 #main {
   color: #000;
