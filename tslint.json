@@ -1,0 +1,13 @@
+{
+  "extends": ["tslint-config-standard", "tslint-react"],
+  "rules": {
+    "quotemark": [true, "single", "jsx-double"],
+    "space-before-function-paren": [true, {
+      "anonymous": "always",
+      "named": "never",
+      "asyncArrow": "ignore"
+    }],
+    "jsx-wrap-multiline": false,
+    "jsx-no-multiline-js": false
+  }
+}

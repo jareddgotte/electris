@@ -24,8 +24,6 @@
 /** Represents our game board and interface */
 class Game {
   // Public Vars
-  /** Developer Mode (when enabled/true, test cases can be ran via keybinds) */
-  devModeOn: boolean
   /**
    * Since the Tetris standard is to have 10 horizontal blocks by 16 vertical
    * blocks, this is a constant set to 16.
@@ -36,24 +34,26 @@ class Game {
    * blocks, this is a constant set to 10.
    */
   static readonly BOARD_COL_NUM: number = 10
+  /** Developer Mode (when enabled/true, test cases can be ran via keybinds) */
+  devModeOn: boolean
   /**
    * If true, we want to create a new Tet at the beginning of the loop
    * interval.
-   * 
+   *
    * Defaults as true since we always want to create a new Tet at the beginning
    * of the game.
    */
   newTet: boolean
   /**
    * The Tet that's falling and being controlled by the player.
-   * 
+   *
    * Defaults as null since we don't start off with any Tets the moment the game
    * gets intialized.
    */
   currTet: Tet | null
   /**
    * The Tet that's going to come into play after the currTet lands.
-   * 
+   *
    * Defaults as null since we don't start off with any Tets the moment the game
    * gets intialized.
    */
@@ -77,7 +77,7 @@ class Game {
    */
   updateScore: boolean
   /** TODO: Add comment */
-  loop: NodeJS.Timer
+  loop: number
   /** TODO: Add comment */
   dropOnce: boolean
 
@@ -154,11 +154,11 @@ class Game {
     // Assume block width and height will always be the same:
     this.blockS = this.canvasWidth / 10
 
-    this.canvas = <HTMLCanvasElement> document.getElementById(canvasId)
+    this.canvas = document.getElementById(canvasId) as HTMLCanvasElement
     this.canvas.width = this.canvasWidth
     this.canvas.height = 2 * this.canvasWidth
 
-    this.panelHeight = 
+    this.panelHeight =
         Math.round((2 - Game.BOARD_ROW_NUM / Game.BOARD_COL_NUM) *
             this.canvasWidth)
 
@@ -202,7 +202,7 @@ class Game {
         that.draw()
       }
     }
-  
+
     // Handle key events
     // For keycodes: http://www.javascripter.net/faq/keycodes.htm
     document.onkeydown = (e) => {
@@ -338,8 +338,8 @@ class Game {
    * @param number A non-comma separated number.
    * @returns A comma separated number.
    */
-  commaSeparateNumber(number: number) {
-    const numIn = Math.floor(number)
+  commaSeparateNumber(num: number) {
+    const numIn = Math.floor(num)
     let numOut = numIn.toString()
 
     if (numIn <= 99999999999999) {
@@ -374,14 +374,14 @@ class Game {
   draw() {
     // Keys, in order, reflect the HTML color code of Tets: I, J, L, O, S, T, Z
     const tetColor = ['#3cc', '#0af', '#f90', '#ee0', '#0c0', '#c0c', '#c00']
-  
+
     const c = this.canvas.getContext('2d')
 
     // TODO: Figure out a more graceful way of doing this
     if (!c || !this.nextTet) return
 
     c.clearRect(0, 0, this.canvas.width, 2 * this.canvas.width) // clear canvas
-  
+
     // Draw top panel
     // paused
     if (this.paused) {
@@ -441,7 +441,7 @@ class Game {
       c.font = '15px Arial'
       c.fillText('DEV', 166, 74)
     }
-  
+
     // Draw living Tet "shadow" at bottom and rotation
     if (!this.newTet) {
       // TODO: Figure out a more graceful way of doing this
@@ -465,11 +465,11 @@ class Game {
               this.blockS + this.panelHeight)
       const len = this.currTet.perim.length
       for (let row = 1; row < len; row++) {
-      c.lineTo(
-          (tmpPotTopLeft.col + this.currTet.perim[row][0]) *
-              this.blockS,
-          (tmpPotTopLeft.row + this.currTet.perim[row][1]) *
-              this.blockS + this.panelHeight)
+        c.lineTo(
+            (tmpPotTopLeft.col + this.currTet.perim[row][0]) *
+                this.blockS,
+            (tmpPotTopLeft.row + this.currTet.perim[row][1]) *
+                this.blockS + this.panelHeight)
       }
       c.closePath()
       c.lineWidth = 2
@@ -477,7 +477,7 @@ class Game {
       c.fill()
       c.strokeStyle = '#ddd'
       c.stroke()
-  
+
       // draw pivot shadow
       if (this.currTet.pivot > 0) {
         const potPerim = this.currTet.doesNotTetPivotCollide()
@@ -507,7 +507,7 @@ class Game {
         }
       }
     }
-  
+
     // Draw all Tets
     const aTLen = this.allTets.length
     for (let tet = 0; tet < aTLen; tet++) {
@@ -531,7 +531,7 @@ class Game {
       c.strokeStyle = '#000'
       c.stroke()
     }
-  
+
     // Draw Game Over text if game is over
     if (this.gameOver) {
       // gray tint
@@ -637,7 +637,7 @@ class Game {
     clearInterval(this.loop)
 
     const that = this
-    this.loop = setInterval(() => {
+    this.loop = window.setInterval(() => {
       if (that.dropOnce && that.newTet) clearInterval(that.loop)
       if (that.newTet) that.createTet()
       else if (!that.paused && that.currTet) that.currTet.moveDown()
@@ -715,8 +715,9 @@ class Game {
     let cValue: string | null = document.cookie
     let cStart = cValue.indexOf(' ' + cName + '=')
     if (cStart === -1) cStart = cValue.indexOf(cName + '=')
-    if (cStart === -1) cValue = null
-    else {
+    if (cStart === -1) {
+      cValue = null
+    } else {
       cStart = cValue.indexOf('=', cStart) + 1
       let cEnd = cValue.indexOf(';', cStart)
       if (cEnd === -1) cEnd = cValue.length
@@ -732,13 +733,13 @@ class Game {
    * to use cookies to store the user's info.
    * @param cName This is the name of the cookie we want.
    * @param value This is the value of the cookie we want to set.
-   * @param exDays This is the expiration date of the cookie.
+   * @param [exDays] This is the expiration date of the cookie.
    */
-  setCookie(cName: string, value: string, exDays: number) {
+  setCookie(cName: string, value: string, exDays?: number) {
     const exdate = new Date()
-    exdate.setDate(exdate.getDate() + exDays)
+    exdate.setDate(exdate.getDate() + (exDays || 0))
     const cValue = escape(value) +
-        ((exDays === null) ? '' : '; expires=' + exdate.toUTCString())
+        ((!exDays) ? '' : '; expires=' + exdate.toUTCString())
     document.cookie = cName + '=' + cValue
   }
 
@@ -792,7 +793,7 @@ class Game {
 
   // TODO: This is from TestCase.js
   testCase(n: number) {
-    console.warn('Test cases not enabled yet.')
+    console.warn('Test cases not enabled yet.' + n)
   }
 }
 
@@ -811,15 +812,13 @@ interface TetRep {
  * This function creates a Tet class intended to be instantiated by "new Tet()".
  * However, upon completing a row in our Tetris game, we will want to remove the
  * blocks in that row.
- * 
+ *
  * In the case that our Tet becomes divided during the row removal, we will want
  * to split the whole Tet into multiple Tet fragments which is when we will use
  * "new Tet(-1)", then set its properties manually.
  * @class Represents a Tet, both living and landed.
  */
 class Tet {
-  /** Game object which the Tet is in */
-  private game: Game
   /**
    * Initially only used to determined its shape upon our class being
    * constructed. If in range [0..6] (number of Tets), set its properties
@@ -828,24 +827,16 @@ class Tet {
    */
   type: number
   /**
-   * Rotation is constrained by the range [0..3]. Incrementing the rotation
-   * basically rotates the shape clockwise. This rotation decides our this.shape
-   * and this.perim.
-   */
-  rotation: number
-  /**
    * This is the number of rows we are going to move our tet when we decide to
    * rotate it. Constraints are from [0..this.pivotMax].
    */
   pivot: number
-  /** This is the maximum amount of times a block can be pivoted. */
-  pivotMax: number
   /**
    * This is the (row, column) position the Tet is in with respect to the game
    * board (16 rows by 10 columns); (0, 0) being the most top left position.
-   * 
+   *
    * topLeft.row - Row position of Tet on board.
-   * 
+   *
    * topLeft.col - Column position of Tet on board.
    */
   topLeft: {row: number, col: number}
@@ -863,6 +854,16 @@ class Tet {
    * in each "row" of _perim, and multiplying each x and y value by _s.
    */
   perim: number[][]
+  /** Game object which the Tet is in */
+  private game: Game
+  /**
+   * Rotation is constrained by the range [0..3]. Incrementing the rotation
+   * basically rotates the shape clockwise. This rotation decides our this.shape
+   * and this.perim.
+   */
+  private rotation: number
+  /** This is the maximum amount of times a block can be pivoted. */
+  private pivotMax: number
 
   /**
    * @param game Game object which the Tet will be in
@@ -885,155 +886,9 @@ class Tet {
     if (this.type > -1) {
       this.rotation = 0
       this.pivot = 0
-      this.topLeft = {row: 0, col: 4}
+      this.topLeft = { row: 0, col: 4 }
       this.setShape(this.getShapeMatrix(0))
     }
-  }
-
-  /**
-   * This method takes in a Tet type and rotation then outputs its shape matrix.
-   * This method is only needed on a live Tet. I.e. if a Tet is already placed
-   * on the landed array, this method will not be used.
-   * @param rotation Rotation of shape, determined by user input.
-   * @returns Number matrix of shape.  If type is unexpected, return empty
-   *     array.
-   */
-  getShapeMatrix(rotation: number) {
-    // Shapes are from: http://en.wikipedia.org/wiki/Tetris#Colors_of_Tetriminos
-    // The numbers in these arrays denote their eventual color.
-    // NOTE: Trailing zeros were removed and replaced by spaces in the following
-    // matrices as a reasonable optimization for gaming (preventing unnecessary
-    // loop iterations).
-    /* eslint-disable comma-spacing, no-multi-spaces, standard/array-bracket-even-spacing */
-    const matrixMatrix = [
-      [ [[1,1,1,1]],       [[1],[1],[1],[1]] ], // I
-      [ [[1,1,1],[0,0,1]], [[0,1],[0,1],[1,1]], [[1    ],[1,1,1]], [[1,1],[1  ],[1  ]] ], // J
-      [ [[1,1,1],[1    ]], [[1,1],[0,1],[0,1]], [[0,0,1],[1,1,1]], [[1  ],[1  ],[1,1]] ], // L
-      [ [[1,1],  [1,1]] ], // O
-      [ [[0,1,1],[1,1  ]], [[1  ],[1,1],[0,1]] ], // S
-      [ [[1,1,1],[0,1  ]], [[0,1],[1,1],[0,1]], [[0,1  ],[1,1,1]], [[1  ],[1,1],[1  ]] ], // T
-      [ [[1,1  ],[0,1,1]], [[0,1],[1,1],[1  ]] ] // Z
-    ]
-    /* eslint-enable comma-spacing, no-multi-spaces, standard/array-bracket-even-spacing */
-    const m = matrixMatrix[this.type]
-    switch (this.type) {
-      case 0: // I needs 3 pivots
-        this.pivotMax = 3
-        break
-      case 3: // O needs no pivots
-        this.pivotMax = 0
-        break
-      default: // every other Tet needs 1
-        this.pivotMax = 1
-    }
-    switch (m.length) {
-      case 1:
-        return m[0]
-      case 2:
-        return m[rotation % 2]
-      case 4:
-        return m[rotation]
-      default:
-        // console.log('unexpected array length in function ' +
-        //     arguments.callee.toString().substr(
-        //         9, arguments.callee.toString().indexOf('(') - 9))
-        return []
-    }
-  }
-
-  /**
-   * This method is used any time a living/landed Tet's shape is
-   * created/altered. Upon breaking up a tet, make sure these conditions are met
-   * on its new shape:
-   * 
-   * 1) Remove trailing zeros from each row, e.g. [1,0] becomes [1];
-   * 
-   * 2) If new shape is one row, remove leading zeros, e.g. [0,1] becomes [1].
-   *    Which they are in the Tet.cleanShape() method.
-   * 
-   * @param shape This is the shape of the Tet we care about getting the
-   *     perimeter from.
-   * @returns Perimeter of shape. If shape is unknown, return empty array.
-   */
-  getPerim(shape: number[][]) {
-    // NOTE: Trailing zeros were removed and replaced by spaces in the following
-    // matrices as a gaming optimization (preventing unnecessary loop
-    // iterations).
-    /* eslint-disable comma-spacing, no-multi-spaces, standard/array-bracket-even-spacing */
-    const periMatrix = [
-      [ [[1]],               [[0,0],[0,1],[1,1],[1,0]] ], // fragments
-      [ [[1,1]],             [[0,0],[0,1],[2,1],[2,0]] ],
-      [ [[1],[1]],           [[0,0],[0,2],[1,2],[1,0]] ],
-      [ [[1,1,1]],           [[0,0],[0,1],[3,1],[3,0]] ],
-      [ [[1],[1],[1]],       [[0,0],[0,3],[1,3],[1,0]] ],
-      [ [[1,1],[0,1]],       [[0,0],[0,1],[1,1],[1,2],[2,2],[2,0]] ],
-      [ [[0,1],[1,1]],       [[1,0],[1,1],[0,1],[0,2],[2,2],[2,0]] ],
-      [ [[1  ],[1,1]],       [[0,0],[0,2],[2,2],[2,1],[1,1],[1,0]] ],
-      [ [[1,1],[1  ]],       [[0,0],[0,2],[1,2],[1,1],[2,1],[2,0]] ],
-      [ [[1,1,1,1]],         [[0,0],[0,1],[4,1],[4,0]] ], // I
-      [ [[1],[1],[1],[1]],   [[0,0],[0,4],[1,4],[1,0]] ],
-      [ [[1,1,1],[0,0,1]],   [[0,0],[0,1],[2,1],[2,2],[3,2],[3,0]] ], // J
-      [ [[0,1],[0,1],[1,1]], [[1,0],[1,2],[0,2],[0,3],[2,3],[2,0]] ],
-      [ [[1    ],[1,1,1]],   [[0,0],[0,2],[3,2],[3,1],[1,1],[1,0]] ],
-      [ [[1,1],[1  ],[1  ]], [[0,0],[0,3],[1,3],[1,1],[2,1],[2,0]] ],
-      [ [[1,1,1],[1    ]],   [[0,0],[0,2],[1,2],[1,1],[3,1],[3,0]] ], // L
-      [ [[1,1],[0,1],[0,1]], [[0,0],[0,1],[1,1],[1,3],[2,3],[2,0]] ],
-      [ [[0,0,1],[1,1,1]],   [[2,0],[2,1],[0,1],[0,2],[3,2],[3,0]] ],
-      [ [[1  ],[1  ],[1,1]], [[0,0],[0,3],[2,3],[2,2],[1,2],[1,0]] ],
-      [ [[1,1],[1,1]],       [[0,0],[0,2],[2,2],[2,0]] ], // O
-      [ [[0,1,1],[1,1  ]],   [[1,0],[1,1],[0,1],[0,2],[2,2],[2,1],[3,1],[3,0]] ], // S
-      [ [[1  ],[1,1],[0,1]], [[0,0],[0,2],[1,2],[1,3],[2,3],[2,1],[1,1],[1,0]] ],
-      [ [[1,1,1],[0,1  ]],   [[0,0],[0,1],[1,1],[1,2],[2,2],[2,1],[3,1],[3,0]] ], // T
-      [ [[0,1],[1,1],[0,1]], [[1,0],[1,1],[0,1],[0,2],[1,2],[1,3],[2,3],[2,0]] ],
-      [ [[0,1  ],[1,1,1]],   [[1,0],[1,1],[0,1],[0,2],[3,2],[3,1],[2,1],[2,0]] ],
-      [ [[1  ],[1,1],[1  ]], [[0,0],[0,3],[1,3],[1,2],[2,2],[2,1],[1,1],[1,0]] ],
-      [ [[1,1  ],[0,1,1]],   [[0,0],[0,1],[1,1],[1,2],[3,2],[3,1],[2,1],[2,0]] ], // Z
-      [ [[0,1],[1,1],[1  ]], [[1,0],[1,1],[0,1],[0,3],[1,3],[1,2],[2,2],[2,0]] ]
-    ]
-    /* eslint-enable comma-spacing, no-multi-spaces, standard/array-bracket-even-spacing */
-    let checkNextShape: boolean
-    // Iterate through periMatrix to see if the given shape matches a shape
-    // within this array
-    const pLen = periMatrix.length
-    for (let pRow = 0; pRow < pLen; pRow++) {
-      checkNextShape = false
-      const rLen = shape.length
-      for (let row = 0; row < rLen; row++) {
-        if (rLen !== periMatrix[pRow][0].length) {
-          checkNextShape = true
-          break
-        }
-        if (checkNextShape) break
-        const cLen = shape[row].length
-        for (let col = 0; col < cLen; col++) {
-          if (shape[row].length !== periMatrix[pRow][0][row].length) {
-            checkNextShape = true
-            break
-          }
-          if (shape[row][col] === periMatrix[pRow][0][row][col]) {
-            continue
-          }
-          checkNextShape = true
-          break
-        }
-      }
-      if (!checkNextShape) {
-        // if it gets to this point, we found our point array
-        return periMatrix[pRow][1]
-      }
-    }
-    return []
-  }
-
-  /**
-   * This method actually sets the shape and perimeter of the Tet that's
-   * executing this method.
-   * @param shape This is the shape of the Tet we care about getting the
-   *     perimeter from.
-   */
-  setShape(shape: number[][]) {
-    this.shape = shape
-    this.perim = this.getPerim(shape)
   }
 
   /**
@@ -1041,9 +896,9 @@ class Tet {
    * game board, and changes the shape and perimeter if it successfully rotates.
    * Otherwise, do nothing. We also move the Tet this.pivot blocks to the right,
    * then reset the pivot to zero.
-   * 
+   *
    * By default, always rotates clockwise.
-   * 
+   *
    * @param shape This is the shape of the Tet we care about getting the
    *     perimeter from.
    * @returns Currently, we don't care about the actual return value.
@@ -1162,51 +1017,6 @@ class Tet {
   }
 
   /**
-   * This method checks to see if a Tet will collide with the side of the game
-   * board or another Tet. If it collides on the right side of the Tet, we'll
-   * adjust the pivot as necessary.
-   * @param potTopLeft This object contains a potential row and column
-   *     which we use to check to see if the Tet will collide if it moves to the
-   *     coordinate specified by this param.
-   * @param [direction] If value is 1, we are testing the right side
-   *     and we're going to adjust the pivot.
-   * @returns If Tet colides, return true; else, false.
-   */
-  doesTetCollideSide(
-        potTopLeft: {row: number, col: number},
-        direction?: number) {
-    const landed = this.game.getLanded()
-    const rLen = this.shape.length
-    for (let row = 0; row < rLen; row++) {
-      const cLen = this.shape[row].length
-      for (let col = 0; col < cLen; col++) {
-        if (this.shape[row][col] !== 0) {
-          if (col + potTopLeft.col < 0) {
-            // console.log('left beyond playing field');
-            return true
-          }
-          if (col + potTopLeft.col >= Game.BOARD_COL_NUM) {
-            // console.log('right beyond playing field');
-            if (this.pivot < this.pivotMax && this.rotation % 2 === 0) {
-              this.pivot++
-            }
-            return true
-          }
-          if (landed[row + potTopLeft.row][col + potTopLeft.col] !== 0) {
-            // console.log('side: space taken');
-            if (direction === 1 &&
-                (this.pivot < this.pivotMax && this.rotation % 2 === 0)) {
-              this.pivot++
-            }
-            return true
-          }
-        }
-      }
-    }
-    return false
-  }
-
-  /**
    * This method moves the Tet left by 1 column if it does not collide with the
    * side of the game board or another Tet. This method also resets the pivot to
    * zero.
@@ -1258,15 +1068,259 @@ class Tet {
   }
 
   /**
+   * This method sets each row within its shape to zero for each row marked as
+   * full.
+   * @param fullRows This is an array of all of the rows that were marked as
+   *     full in the collided method above.
+   */
+  alterShape(fullRows: number[]) {
+    const len = fullRows.length
+    let row: number
+    for (let i = 0; i < len; i++) {
+      row = fullRows[i] - this.topLeft.row
+      if (row < 0 || row > this.shape.length - 1) {
+        continue
+      }
+      const cLen = this.shape[row].length
+      for (let col = 0; col < cLen; col++) {
+        this.shape[row][col] = 0
+      }
+    }
+    this.updateTet()
+  }
+
+  /**
+   * This method takes in a Tet type and rotation then outputs its shape matrix.
+   * This method is only needed on a live Tet. I.e. if a Tet is already placed
+   * on the landed array, this method will not be used.
+   * @param rotation Rotation of shape, determined by user input.
+   * @returns Number matrix of shape. If type is unexpected, return empty array.
+   */
+  private getShapeMatrix(rotation: number) {
+    // Shapes are from: http://en.wikipedia.org/wiki/Tetris#Colors_of_Tetriminos
+    // The numbers in these arrays denote their eventual color.
+    // NOTE: Trailing zeros were removed and replaced by spaces in the following
+    // matrices as a reasonable optimization for gaming (preventing unnecessary
+    // loop iterations).
+    /* tslint:disable:no-multi-spaces */
+    const matrixMatrix = [
+      // I
+      [
+        [[1,1,1,1]],       [[1],[1],[1],[1]]
+      ],
+      // J
+      [
+        [[1,1,1],[0,0,1]], [[0,1],[0,1],[1,1]],
+        [[1    ],[1,1,1]], [[1,1],[1  ],[1  ]]
+      ],
+      // L
+      [
+        [[1,1,1],[1    ]], [[1,1],[0,1],[0,1]],
+        [[0,0,1],[1,1,1]], [[1  ],[1  ],[1,1]]
+      ],
+      // O
+      [
+        [[1,1],  [1,1]]
+      ],
+      // S
+      [
+        [[0,1,1],[1,1  ]], [[1  ],[1,1],[0,1]]
+      ],
+      // T
+      [
+        [[1,1,1],[0,1  ]], [[0,1],[1,1],[0,1]],
+        [[0,1  ],[1,1,1]], [[1  ],[1,1],[1  ]]
+      ],
+      // Z
+      [
+        [[1,1  ],[0,1,1]], [[0,1],[1,1],[1  ]]
+      ]
+    ]
+    /* tslint:enable:no-multi-spaces */
+    const m = matrixMatrix[this.type]
+    switch (this.type) {
+      case 0: // I needs 3 pivots
+        this.pivotMax = 3
+        break
+      case 3: // O needs no pivots
+        this.pivotMax = 0
+        break
+      default: // every other Tet needs 1
+        this.pivotMax = 1
+    }
+    switch (m.length) {
+      case 1:
+        return m[0]
+      case 2:
+        return m[rotation % 2]
+      case 4:
+        return m[rotation]
+      default:
+        // console.log('unexpected array length in function ' +
+        //     arguments.callee.toString().substr(
+        //         9, arguments.callee.toString().indexOf('(') - 9))
+        return []
+    }
+  }
+
+  /**
+   * This method is used any time a living/landed Tet's shape is
+   * created/altered. Upon breaking up a tet, make sure these conditions are met
+   * on its new shape:
+   *
+   * 1) Remove trailing zeros from each row, e.g. [1,0] becomes [1];
+   *
+   * 2) If new shape is one row, remove leading zeros, e.g. [0,1] becomes [1].
+   *    Which they are in the Tet.cleanShape() method.
+   *
+   * @param shape This is the shape of the Tet we care about getting the
+   *     perimeter from.
+   * @returns Perimeter of shape. If shape is unknown, return empty array.
+   */
+  private getPerim(shape: number[][]) {
+    // NOTE: Trailing zeros were removed and replaced by spaces in the following
+    // matrices as a gaming optimization (preventing unnecessary loop
+    // iterations).
+    /* tslint:disable:no-multi-spaces */
+    const periMatrix = [
+      // fragments
+      [ [[1]],               [[0,0],[0,1],[1,1],[1,0]] ],
+      [ [[1,1]],             [[0,0],[0,1],[2,1],[2,0]] ],
+      [ [[1],[1]],           [[0,0],[0,2],[1,2],[1,0]] ],
+      [ [[1,1,1]],           [[0,0],[0,1],[3,1],[3,0]] ],
+      [ [[1],[1],[1]],       [[0,0],[0,3],[1,3],[1,0]] ],
+      [ [[1,1],[0,1]],       [[0,0],[0,1],[1,1],[1,2],[2,2],[2,0]] ],
+      [ [[0,1],[1,1]],       [[1,0],[1,1],[0,1],[0,2],[2,2],[2,0]] ],
+      [ [[1  ],[1,1]],       [[0,0],[0,2],[2,2],[2,1],[1,1],[1,0]] ],
+      [ [[1,1],[1  ]],       [[0,0],[0,2],[1,2],[1,1],[2,1],[2,0]] ],
+      // I
+      [ [[1,1,1,1]],         [[0,0],[0,1],[4,1],[4,0]] ],
+      [ [[1],[1],[1],[1]],   [[0,0],[0,4],[1,4],[1,0]] ],
+      // J
+      [ [[1,1,1],[0,0,1]],   [[0,0],[0,1],[2,1],[2,2],[3,2],[3,0]] ],
+      [ [[0,1],[0,1],[1,1]], [[1,0],[1,2],[0,2],[0,3],[2,3],[2,0]] ],
+      [ [[1    ],[1,1,1]],   [[0,0],[0,2],[3,2],[3,1],[1,1],[1,0]] ],
+      [ [[1,1],[1  ],[1  ]], [[0,0],[0,3],[1,3],[1,1],[2,1],[2,0]] ],
+      // L
+      [ [[1,1,1],[1    ]],   [[0,0],[0,2],[1,2],[1,1],[3,1],[3,0]] ],
+      [ [[1,1],[0,1],[0,1]], [[0,0],[0,1],[1,1],[1,3],[2,3],[2,0]] ],
+      [ [[0,0,1],[1,1,1]],   [[2,0],[2,1],[0,1],[0,2],[3,2],[3,0]] ],
+      [ [[1  ],[1  ],[1,1]], [[0,0],[0,3],[2,3],[2,2],[1,2],[1,0]] ],
+      // O
+      [ [[1,1],[1,1]],       [[0,0],[0,2],[2,2],[2,0]] ],
+      // S
+      [ [[0,1,1],[1,1  ]],   [[1,0],[1,1],[0,1],[0,2],[2,2],[2,1],[3,1],[3,0]] ],
+      [ [[1  ],[1,1],[0,1]], [[0,0],[0,2],[1,2],[1,3],[2,3],[2,1],[1,1],[1,0]] ],
+      // T
+      [ [[1,1,1],[0,1  ]],   [[0,0],[0,1],[1,1],[1,2],[2,2],[2,1],[3,1],[3,0]] ],
+      [ [[0,1],[1,1],[0,1]], [[1,0],[1,1],[0,1],[0,2],[1,2],[1,3],[2,3],[2,0]] ],
+      [ [[0,1  ],[1,1,1]],   [[1,0],[1,1],[0,1],[0,2],[3,2],[3,1],[2,1],[2,0]] ],
+      [ [[1  ],[1,1],[1  ]], [[0,0],[0,3],[1,3],[1,2],[2,2],[2,1],[1,1],[1,0]] ],
+      // Z
+      [ [[1,1  ],[0,1,1]],   [[0,0],[0,1],[1,1],[1,2],[3,2],[3,1],[2,1],[2,0]] ],
+      [ [[0,1],[1,1],[1  ]], [[1,0],[1,1],[0,1],[0,3],[1,3],[1,2],[2,2],[2,0]] ]
+    ]
+    /* tslint:enable:no-multi-spaces */
+    let checkNextShape: boolean
+    // Iterate through periMatrix to see if the given shape matches a shape
+    // within this array
+    const pLen = periMatrix.length
+    for (let pRow = 0; pRow < pLen; pRow++) {
+      checkNextShape = false
+      const rLen = shape.length
+      for (let row = 0; row < rLen; row++) {
+        if (rLen !== periMatrix[pRow][0].length) {
+          checkNextShape = true
+          break
+        }
+        if (checkNextShape) break
+        const cLen = shape[row].length
+        for (let col = 0; col < cLen; col++) {
+          if (shape[row].length !== periMatrix[pRow][0][row].length) {
+            checkNextShape = true
+            break
+          }
+          if (shape[row][col] === periMatrix[pRow][0][row][col]) {
+            continue
+          }
+          checkNextShape = true
+          break
+        }
+      }
+      if (!checkNextShape) {
+        // if it gets to this point, we found our point array
+        return periMatrix[pRow][1]
+      }
+    }
+    return []
+  }
+
+  /**
+   * This method actually sets the shape and perimeter of the Tet that's
+   * executing this method.
+   * @param shape This is the shape of the Tet we care about getting the
+   *     perimeter from.
+   */
+  private setShape(shape: number[][]) {
+    this.shape = shape
+    this.perim = this.getPerim(shape)
+  }
+
+  /**
+   * This method checks to see if a Tet will collide with the side of the game
+   * board or another Tet. If it collides on the right side of the Tet, we'll
+   * adjust the pivot as necessary.
+   * @param potTopLeft This object contains a potential row and column
+   *     which we use to check to see if the Tet will collide if it moves to the
+   *     coordinate specified by this param.
+   * @param [direction] If value is 1, we are testing the right side
+   *     and we're going to adjust the pivot.
+   * @returns If Tet colides, return true; else, false.
+   */
+  private doesTetCollideSide(
+        potTopLeft: {row: number, col: number},
+        direction?: number) {
+    const landed = this.game.getLanded()
+    const rLen = this.shape.length
+    for (let row = 0; row < rLen; row++) {
+      const cLen = this.shape[row].length
+      for (let col = 0; col < cLen; col++) {
+        if (this.shape[row][col] !== 0) {
+          if (col + potTopLeft.col < 0) {
+            // console.log('left beyond playing field');
+            return true
+          }
+          if (col + potTopLeft.col >= Game.BOARD_COL_NUM) {
+            // console.log('right beyond playing field');
+            if (this.pivot < this.pivotMax && this.rotation % 2 === 0) {
+              this.pivot++
+            }
+            return true
+          }
+          if (landed[row + potTopLeft.row][col + potTopLeft.col] !== 0) {
+            // console.log('side: space taken');
+            if (direction === 1 &&
+                (this.pivot < this.pivotMax && this.rotation % 2 === 0)) {
+              this.pivot++
+            }
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
+  /**
    * This method handles row elimination and Tet fragmentation. We also adjust
    * the score depending on how many rows get eliminated. The score scales with
    * how many rows get eliminated at once by the following formula:
-   * 
+   *
    * `score += (fRLen ** (1 + (fRLen - 1) * 0.1)) * 10000`
-   * 
+   *
    * We then perform the falling animations on the Tets affected by "gravity."
    */
-  collided() {
+  private collided() {
     const landed = this.game.getLanded()
     let isFilled: boolean
     const fullRows = []
@@ -1294,7 +1348,7 @@ class Tet {
     // let movingTets = [0] // TODO: why is this 0?
     let movingTets = []
     let tetsMoved: boolean
-    const moveLoop = setInterval(() => {
+    const moveLoop = window.setInterval(() => {
       movingTets = []
       tetsMoved = true
       while (tetsMoved) {
@@ -1337,8 +1391,7 @@ class Tet {
    * @returns This is the cleaned up shape, without extraneous zeros, and
    *     adjusted topLeft.
    */
-  // cleanShape(o: {shape: number[][], topLeft: {row: number, col: number}}) {
-  cleanShape(o: TetRep): TetRep {
+  private cleanShape(o: TetRep): TetRep {
     const shape = o.shape
     const topLeft = o.topLeft
     let done = false
@@ -1370,14 +1423,14 @@ class Tet {
         break
       }
     }
-    return {shape: shape, topLeft: topLeft}
+    return { shape: shape, topLeft: topLeft }
   }
 
   /**
    * This method checks to see if itself, an array, is all zeros.
    * @returns If itself is all zeros, return true; else, false.
    */
-  arrayIsAllZeros(arr: number[]) {
+  private arrayIsAllZeros(arr: number[]) {
     const len = arr.length
     for (let col = 0; col < len; col++) {
       if (arr[col] > 0) return false
@@ -1390,8 +1443,7 @@ class Tet {
    * not. If it becomes fragmented, we instantiate a new Tet class to add in its
    * fragmented part.
    */
-  updateTet() {
-    // const q: {shape: number[][], topLeft: {row: number, col: number}}[] = []
+  private updateTet() {
     const q: TetRep[] = []
     let currShape: number[][] = []
     let topLeft = this.topLeft
@@ -1403,19 +1455,19 @@ class Tet {
       // shape
       if (!this.arrayIsAllZeros(this.shape[row])) {
         if (currShape.length === 0) {
-          topLeft = {row: this.topLeft.row + row, col: this.topLeft.col}
+          topLeft = { row: this.topLeft.row + row, col: this.topLeft.col }
         }
         currShape.push(this.shape[row])
       // FIXME: Otherwise, push this current shape onto the queue and reset our
       // temporary shape to potentially build another
       } else {
         if (currShape.length === 0) continue
-        q.push({shape: currShape, topLeft: topLeft})
+        q.push({ shape: currShape, topLeft: topLeft })
         currShape = []
       }
     }
 
-    if (currShape.length > 0) q.push({shape: currShape, topLeft: topLeft})
+    if (currShape.length > 0) q.push({ shape: currShape, topLeft: topLeft })
 
     if (q.length === 0) {
       // Remove this Tet from allTets if shape is a zero'd matrix (Tet
@@ -1443,25 +1495,38 @@ class Tet {
       }
     }
   }
-
-  /**
-   * This method sets each row within its shape to zero for each row marked as
-   * full.
-   * @param fullRows This is an array of all of the rows that were marked as
-   *     full in the collided method above.
-   */
-  alterShape(fullRows: number[]) {
-    const len = fullRows.length
-    for (let i = 0, row; i < len; i++) {
-      row = fullRows[i] - this.topLeft.row
-      if (row < 0 || row > this.shape.length - 1) {
-        continue
-      }
-      const cLen = this.shape[row].length
-      for (let col = 0; col < cLen; col++) {
-        this.shape[row][col] = 0
-      }
-    }
-    this.updateTet()
-  }
 }
+
+// Begin including normally inline JS code
+const { remote, shell } = require('electron')
+
+// Minimize window when "– button" at top right is clicked
+const minimizeButton = document.getElementById('minimizeButton')
+if (minimizeButton) {
+  minimizeButton.addEventListener('click', () => {
+    remote.getCurrentWindow().minimize()
+  })
+}
+
+// Close window when "× button" at top right is clicked
+const closeButton = document.getElementById('closeButton')
+if (closeButton) {
+  closeButton.addEventListener('click', () => {
+    remote.getCurrentWindow().close()
+  })
+}
+
+// Open any links externally by default
+document.addEventListener('click', (event) => {
+  if (event.target) {
+    const target: HTMLAnchorElement = event.target as HTMLAnchorElement
+    if (target.tagName === 'A' && target.href.startsWith('http')) {
+      event.preventDefault()
+      shell.openExternal(target.href)
+    }
+  }
+})
+
+// Initialize game
+const theGame = new Game('canvas', 'high-scores-list')
+if (!theGame) console.error('Game didn\'t load!', theGame)
