@@ -15,11 +15,10 @@ function createWindow() {
   // Load the index.html of the app.
   mainWindow.loadURL(`file://${__dirname}/renderer.html`)
 
-  // Open the DevTools.
-  // if (process.env.NODE_ENV === 'development') {
-  //   mainWindow.webContents.openDevTools()
-  // }
-  mainWindow.webContents.openDevTools()
+  // Open the DevTools if in "development mode."
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.webContents.openDevTools()
+  }
 
   // Emitted when the window is closed.
   mainWindow.on('closed', () => {
