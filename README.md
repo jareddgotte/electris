@@ -1,8 +1,8 @@
 # electris
----
+## Description
 Migrating my current Tetris game ([js-tetris](https://github.com/jareddgotte/js-tetris)) to Electron with the end goal of properly incorporating linting, TypeScript, React, SASS, webpack, and yarn.
 
-## How to use:
+## Installation
 1. Clone this git repo; e.g.:
    - `git clone --depth=1 https://github.com/jareddgotte/electris.git`
 2. Do `yarn install` or `npm install` to populate the local "./node_modules" folder
