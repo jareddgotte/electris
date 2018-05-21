@@ -3,7 +3,7 @@
 Migrating my current Tetris game ([js-tetris](https://github.com/jareddgotte/js-tetris)) to Electron with the end goal of properly incorporating linting, TypeScript, React, SASS, webpack, and yarn.
 
 ## Sample
-![Sample 1 of Electris](https://raw.githubusercontent.com/jareddgotte/electris/master/src/img/sample-01.png)
+<kbd><img src="https://raw.githubusercontent.com/jareddgotte/electris/master/src/img/sample-01.png" alt="Sample 1 of Electris" /></kbd>
 
 ## Installation
 1. Clone this git repo; e.g.:
