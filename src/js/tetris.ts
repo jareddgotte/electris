@@ -194,6 +194,8 @@ class Game {
       }
     }
     window.onfocus = () => {
+      this.canvas.focus()
+      this.canvas.blur()
       if (!pausedBeforeBlur && that.gameOver === false) {
         if (!that.gameOver) {
           that.tetDownLoop()
@@ -1498,23 +1500,7 @@ class Tet {
 }
 
 // Begin including normally inline JS code
-const { remote, shell } = require('electron')
-
-// Minimize window when "– button" at top right is clicked
-const minimizeButton = document.getElementById('minimizeButton')
-if (minimizeButton) {
-  minimizeButton.addEventListener('click', () => {
-    remote.getCurrentWindow().minimize()
-  })
-}
-
-// Close window when "× button" at top right is clicked
-const closeButton = document.getElementById('closeButton')
-if (closeButton) {
-  closeButton.addEventListener('click', () => {
-    remote.getCurrentWindow().close()
-  })
-}
+const { shell } = require('electron')
 
 // Open any links externally by default
 document.addEventListener('click', (event) => {
