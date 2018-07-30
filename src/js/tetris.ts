@@ -21,6 +21,88 @@
  * landed Tet: Tet that has landed and is no longer in control by user.
  */
 
+const electron = require('electron')
+const path = require('path')
+const fs = require('fs')
+const zlib = require('zlib')
+
+/**
+ * Used in Store to represent its options
+ */
+interface StoreOpts {
+  configName: string
+  defaults: any
+  [propName: string]: any
+}
+
+/**
+ * Provides a way to store data to the user's app data folder. Based off of:
+ *   https://gist.github.com/ccnokes/95cb454860dbf8577e88d734c3f31e08
+ */
+class Store {
+  private configPath: string
+  private data: any
+
+  constructor(opts: StoreOpts) {
+    // Get the user's relative app data directory path (the renderer process has
+    // to get `app` module via `remote`, whereas the main process can get it
+    // directly)
+    const app = electron.app || electron.remote.app
+    const userDataPath = app.getPath('userData')
+    const configFileName = 'Electris.' + opts.configName + '.dat'
+    // Set the config path based on the user's app data directory and
+    // `configName` property
+    this.configPath = path.join(userDataPath, configFileName)
+
+    // Load any pre-existing data
+    this.data = this.parseDataFile(this.configPath, opts.defaults)
+
+    // console.log('Store initialized: ', this.configPath, this.data) // debug
+  }
+
+  // Return requested property of the `this.data` object
+  get(key: string) {
+    // console.log(`Store[get]; key[${key}]`, this.data) // debug
+    return this.data[key]
+  }
+
+  // Save and compress JSON values associated with given key to disk
+  set(key: string, val: any) {
+    // console.log(`Store[set]; key[${key}]`, val) // debug
+    this.data[key] = val
+
+    const bufferedJSON = new Buffer(JSON.stringify(this.data))
+    // console.log('bufferedJSON', bufferedJSON) // debug
+
+    zlib.deflate(bufferedJSON, (err: string, buf: string) => {
+      // console.log('deflate async', err, buf) // debug
+      if (err) console.error('zlib deflate error:', err)
+
+      try {
+        fs.writeFileSync(this.configPath, buf)
+      } catch (error) {
+        console.error('Couldn\'t save data:', error)
+      }
+    })
+  }
+
+  // Decompress and unstringify saved JSON data
+  private parseDataFile(filePath: string, defaults: any) {
+    // console.log('parsing data file') // debug
+    try {
+      const inflatedBuffer = zlib.inflateSync(fs.readFileSync(filePath))
+      const decodedValue = inflatedBuffer.toString()
+
+      // console.log('inflate sync', inflatedBuffer, decodedValue) // debug
+      return JSON.parse(decodedValue)
+    } catch (error) {
+      // Load defaults if file doesn't already exist (or otherwise fails)
+      // console.log('defaults', error) // debug
+      return defaults
+    }
+  }
+}
+
 /** Represents our game board and interface */
 class Game {
   // Public Vars
@@ -119,6 +201,8 @@ class Game {
    */
   private highScoresListId: string
 
+  private store: Store
+
   /**
    * Represents all of the functions which generate and control the game board.
    * We use the {@link Tet} class to manipulate our Tets.
@@ -165,6 +249,13 @@ class Game {
     this.landed = []
     this.paused = true
     this.highScoresListId = highScoresListId
+
+    this.store = new Store({
+      configName: 'config',
+      defaults: {
+        highScores: [this.score, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      }
+    })
 
     // Init functions
     this.displayHighScores()
@@ -707,58 +798,11 @@ class Game {
   }
 
   /**
-   * This method came from:
-   * {@link http://www.w3schools.com/js/js_cookies.asp|W3Schools}. It allows us
-   * to use cookies to retrieve the user's info.
-   * @param cName This is the name of the cookie we want.
-   * @returns This is the string extracted from our cookie.
-   */
-  getCookie(cName: string) {
-    let cValue: string | null = document.cookie
-    let cStart = cValue.indexOf(' ' + cName + '=')
-    if (cStart === -1) cStart = cValue.indexOf(cName + '=')
-    if (cStart === -1) {
-      cValue = null
-    } else {
-      cStart = cValue.indexOf('=', cStart) + 1
-      let cEnd = cValue.indexOf(';', cStart)
-      if (cEnd === -1) cEnd = cValue.length
-      cValue = unescape(cValue.substring(cStart, cEnd))
-    }
-
-    return cValue
-  }
-
-  /**
-   * This method came from:
-   * {@link http://www.w3schools.com/js/js_cookies.asp|W3Schools}. It allows us
-   * to use cookies to store the user's info.
-   * @param cName This is the name of the cookie we want.
-   * @param value This is the value of the cookie we want to set.
-   * @param [exDays] This is the expiration date of the cookie.
-   */
-  setCookie(cName: string, value: string, exDays?: number) {
-    const exdate = new Date()
-    exdate.setDate(exdate.getDate() + (exDays || 0))
-    const cValue = escape(value) +
-        ((!exDays) ? '' : '; expires=' + exdate.toUTCString())
-    document.cookie = cName + '=' + cValue
-  }
-
-  /**
    * This method gets the user's high scores from their cookie.
    * @returns This is the list of the high scores of the user.
    */
   getHighScores() {
-    const hsFromCookie = this.getCookie('highScores')
-    let hsOut: number[]
-    if (hsFromCookie === null) {
-      hsOut = [this.score, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-      this.setHighScores(hsOut)
-    } else {
-      hsOut = JSON.parse(hsFromCookie)
-    }
-    return hsOut
+    return this.store.get('highScores')
   }
 
   /**
@@ -767,7 +811,8 @@ class Game {
    *     cookie.
    */
   setHighScores(v: number[]) {
-    this.setCookie('highScores', JSON.stringify(v), 365)
+    // console.log('setting high scores', v) // debug
+    this.store.set('highScores', v)
   }
 
   /**
@@ -781,7 +826,7 @@ class Game {
       const hsLen = highScores.length
       for (let i = 0; i < hsLen; i++) {
         if (this.score > highScores[i]) {
-          highScores.splice(i, 0, this.score)
+          highScores.splice(i, 0, this.score.toFixed(2))
           break
         }
       }
@@ -803,7 +848,7 @@ class Game {
  * Used in Tet to represent a Tet during the cleanShape() and updateTet() phases
  */
 interface TetRep {
-  shape: number[][],
+  shape: number[][]
   topLeft: {
     row: number,
     col: number
