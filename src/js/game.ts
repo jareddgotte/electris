@@ -141,8 +141,8 @@ export class Game {
     this.canvas.height = 2 * this.canvasWidth
 
     this.panelHeight =
-      Math.round((2 - Game.BOARD_ROW_NUM / Game.BOARD_COL_NUM) *
-        this.canvasWidth)
+        Math.round((2 - Game.BOARD_ROW_NUM / Game.BOARD_COL_NUM) *
+            this.canvasWidth)
 
     this.landed = []
     this.paused = true
@@ -320,7 +320,7 @@ export class Game {
    */
   canTetMove() {
     return ((this.newTet === false && this.paused === false) ||
-      this.devModeOn === true) && this.gameOver === false
+        this.devModeOn === true) && this.gameOver === false
   }
 
   /**
@@ -391,17 +391,17 @@ export class Game {
     c.fillText('Next:', 35, 50)
     c.beginPath()
     c.moveTo(
-      (this.nextTet.topLeft.col + this.nextTet.perim[0][0]) *
-      this.blockS,
-      (this.nextTet.topLeft.row + this.nextTet.perim[0][1]) *
-      this.blockS + 37)
+        (this.nextTet.topLeft.col + this.nextTet.perim[0][0]) *
+            this.blockS,
+        (this.nextTet.topLeft.row + this.nextTet.perim[0][1]) *
+            this.blockS + 37)
     const len = this.nextTet.perim.length
     for (let row = 1; row < len; row++) {
       c.lineTo(
-        (this.nextTet.topLeft.col + this.nextTet.perim[row][0]) *
-        this.blockS,
-        (this.nextTet.topLeft.row + this.nextTet.perim[row][1]) *
-        this.blockS + 37)
+          (this.nextTet.topLeft.col + this.nextTet.perim[row][0]) *
+              this.blockS,
+          (this.nextTet.topLeft.row + this.nextTet.perim[row][1]) *
+              this.blockS + 37)
     }
     c.closePath()
     c.lineWidth = 2
@@ -450,17 +450,17 @@ export class Game {
       tmpPotTopLeft.row--
       c.beginPath()
       c.moveTo(
-        (tmpPotTopLeft.col + this.currTet.perim[0][0]) *
-        this.blockS,
-        (tmpPotTopLeft.row + this.currTet.perim[0][1]) *
-        this.blockS + this.panelHeight)
+          (tmpPotTopLeft.col + this.currTet.perim[0][0]) *
+              this.blockS,
+          (tmpPotTopLeft.row + this.currTet.perim[0][1]) *
+              this.blockS + this.panelHeight)
       const len = this.currTet.perim.length
       for (let row = 1; row < len; row++) {
         c.lineTo(
-          (tmpPotTopLeft.col + this.currTet.perim[row][0]) *
-          this.blockS,
-          (tmpPotTopLeft.row + this.currTet.perim[row][1]) *
-          this.blockS + this.panelHeight)
+            (tmpPotTopLeft.col + this.currTet.perim[row][0]) *
+                this.blockS,
+            (tmpPotTopLeft.row + this.currTet.perim[row][1]) *
+                this.blockS + this.panelHeight)
       }
       c.closePath()
       c.lineWidth = 2
@@ -475,17 +475,17 @@ export class Game {
         if (potPerim !== false) {
           c.beginPath()
           c.moveTo(
-            (this.currTet.topLeft.col + potPerim[0][0] + this.currTet.pivot) *
-            this.blockS,
-            (this.currTet.topLeft.row + potPerim[0][1]) *
-            this.blockS + this.panelHeight)
+              (this.currTet.topLeft.col + potPerim[0][0] + this.currTet.pivot) *
+                  this.blockS,
+              (this.currTet.topLeft.row + potPerim[0][1]) *
+                  this.blockS + this.panelHeight)
           const len = this.currTet.perim.length
           for (let row = 1; row < len; row++) {
             c.lineTo(
-              (this.currTet.topLeft.col + potPerim[row][0] +
-                this.currTet.pivot) * this.blockS,
-              (this.currTet.topLeft.row + potPerim[row][1]) *
-              this.blockS + this.panelHeight)
+                (this.currTet.topLeft.col + potPerim[row][0] +
+                    this.currTet.pivot) * this.blockS,
+                (this.currTet.topLeft.row + potPerim[row][1]) *
+                    this.blockS + this.panelHeight)
           }
           c.closePath()
           c.lineWidth = 2
@@ -505,15 +505,15 @@ export class Game {
       const currTet = this.allTets[tet]
       c.beginPath()
       c.moveTo(
-        (currTet.topLeft.col + currTet.perim[0][0]) * this.blockS,
-        (currTet.topLeft.row + currTet.perim[0][1]) * this.blockS +
-        this.panelHeight)
+          (currTet.topLeft.col + currTet.perim[0][0]) * this.blockS,
+          (currTet.topLeft.row + currTet.perim[0][1]) * this.blockS +
+              this.panelHeight)
       const len = currTet.perim.length
       for (let row = 1; row < len; row++) {
         c.lineTo(
-          (currTet.topLeft.col + currTet.perim[row][0]) * this.blockS,
-          (currTet.topLeft.row + currTet.perim[row][1]) * this.blockS +
-          this.panelHeight)
+            (currTet.topLeft.col + currTet.perim[row][0]) * this.blockS,
+            (currTet.topLeft.row + currTet.perim[row][1]) * this.blockS +
+                this.panelHeight)
       }
       c.closePath()
       c.lineWidth = 2
@@ -680,7 +680,7 @@ export class Game {
     const len = this.allTets.length
     for (let tet = 0; tet < len; tet++) {
       if (this.allTets[tet].topLeft.row <= firstRow - 4 ||
-        this.allTets[tet].topLeft.row > lastRow) {
+          this.allTets[tet].topLeft.row > lastRow) {
         continue
       }
       this.allTets[tet].alterShape(fullRows)
