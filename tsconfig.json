@@ -16,7 +16,7 @@
     "declaration": true,
     "sourceMap": true,
     // "outFile": "./",
-    "outDir": "dist/",
+    "outDir": "app/",
     // "rootDir": "./",
     // "removeComments": true,
     // "noEmit": true,

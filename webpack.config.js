@@ -20,7 +20,7 @@ const commonConfig = {
   mode: 'production',
   // mode: 'development',
   output: {
-    path: path.resolve(__dirname, 'dist'),
+    path: path.resolve(__dirname, 'app'),
     filename: '[name].js'
   },
   resolve: {
@@ -61,8 +61,8 @@ module.exports = [
     externals: [nodeExternals()],
     plugins: [
       new CheckerPlugin(),
-      new CleanWebpackPlugin(['./dist/'], {
-        exclude: ['main.d.ts', 'renderer.d.ts', 'js'],
+      new CleanWebpackPlugin(['./app/'], {
+        exclude: ['./app/*.d.ts', 'css', 'img', 'js'],
         verbose: true
       }),
       new HardSourceWebpackPlugin(),

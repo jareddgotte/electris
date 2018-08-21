@@ -18,3 +18,14 @@ build/
 dist/
 built/
 .awcache
+electris-darwin-x64*
+electris-linux-arm64*
+electris-linux-armv7l*
+electris-linux-ia32*
+electris-linux-x64*
+electris-mas-x64*
+electris-win32-ia32*
+electris-win32-x64*
+app/
+!app/css
+!app/img

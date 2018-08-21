@@ -16,11 +16,11 @@ export class Store {
     // to get `app` module via `remote`, whereas the main process can get it
     // directly)
     const app = electron.app || electron.remote.app
-    const userDataPath = app.getPath('userData')
+    const appDataPath = app.getPath('appData')
     const configFileName = 'Electris.' + opts.configName + '.dat'
     // Set the config path based on the user's app data directory and
     // `configName` property
-    this.configPath = path.join(userDataPath, configFileName)
+    this.configPath = path.join(appDataPath, 'electris', configFileName)
 
     // Load any pre-existing data
     this.data = this.parseDataFile(this.configPath, opts.defaults)

@@ -61,7 +61,7 @@ class App extends React.Component {
           {/*<!-- Banner inspired from font: The FontStruction "Tetromino (by Piotr
           Klarowski)" (http://fontstruct.com/fontstructions/show/118906) by
           "ecaGraphics" -->*/}
-          <h1><img id="tetris-banner" src="../src/img/TETRIS.png" alt="Tetris logo" /></h1>
+          <h1><img id="tetris-banner" src="img/TETRIS.png" alt="Tetris logo" /></h1>
           <section className="panel" id="public-controls" aria-labelledby="public-controls-title">
             <h2 id="public-controls-title">Controls</h2>
             <ul>
@@ -101,7 +101,7 @@ class App extends React.Component {
               <br />
               <li>
                 <div>
-                  <span>Pause Game</span>
+                  <span>Start/Pause Game</span>
                 </div>
                 <span><strong>S</strong> or <strong>P</strong> Key</span>
               </li>
