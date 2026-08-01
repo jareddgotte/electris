@@ -11,15 +11,14 @@ import { Game } from './game'
  */
 export class Tet {
   /**
-   * Initially only used to determined its shape upon our class being
-   * constructed. If in range [0..6] (number of Tets), set its properties
-   * appropriately. If -1, we will create a Tet with empty properties because
-   * we're going to set its topLeft, shape and perimeter manually.
+   * Initially only used to determine its shape upon construction. Integers in
+   * range [0..6] select a Tet explicitly. If -1, we create a Tet with empty
+   * properties because its topLeft, shape, and perimeter will be set manually.
    */
   type: number
   /**
-   * This is the number of rows we are going to move our tet when we decide to
-   * rotate it. Constraints are from [0..this.pivotMax].
+   * This is the number of columns we are going to move our tet when we decide
+   * to rotate it. Constraints are from [0..this.pivotMax].
    */
   pivot: number
   /**
@@ -58,8 +57,9 @@ export class Tet {
 
   /**
    * @param game Game object which the Tet will be in
-   * @param [type] Shape of Tet desired, determined randomly if undefined.
-   * @param [random] Random source used when type is undefined.
+   * @param [type] Shape of Tet desired. Integers from -1 through 6 are explicit;
+   *     absent, non-finite, non-integer, or out-of-range values are randomized.
+   * @param [random] Random source used when type is absent or invalid.
    */
   constructor(game: Game, type?: number, random: () => number = Math.random) {
     // Force instantiation
@@ -70,9 +70,9 @@ export class Tet {
     // FIXME: check if game exists
     this.game = game
 
-    this.type = (type && type >= -1 && type < 7)
-      ? type
-      : Math.floor(random() * 7)
+    const hasExplicitType = type !== undefined && Number.isFinite(type) &&
+        Number.isInteger(type) && type >= -1 && type <= 6
+    this.type = hasExplicitType ? type : Math.floor(random() * 7)
 
     // TODO: if type is -1, then it is a single square or fragmented?
     if (this.type > -1) {
@@ -101,17 +101,18 @@ export class Tet {
     let potShape: number[][]
     potRot = (potRot < 3 ? potRot + 1 : 0)
     potShape = this.getShapeMatrix(potRot)
-    // check for potential collisions
+    const potCol = this.topLeft.col + this.pivot
+    // Check the destination that will be committed for potential collisions.
     const rLen = potShape.length
     for (let row = 0; row < rLen; row++) {
       const cLen = potShape[row].length
       for (let col = 0; col < cLen; col++) {
         if (potShape[row][col] !== 0) {
-          if (col + this.topLeft.col < 0) {
+          if (col + potCol < 0) {
             // console.log('left beyond playing field')
             return false
           }
-          if (col + this.topLeft.col >= Game.BOARD_COL_NUM) {
+          if (col + potCol >= Game.BOARD_COL_NUM) {
             // console.log('right beyond playing field')
             return false
           }
@@ -119,14 +120,14 @@ export class Tet {
             // console.log('below playing field')
             return false
           }
-          if (landed[row + this.topLeft.row][col + this.topLeft.col] !== 0) {
+          if (landed[row + this.topLeft.row][col + potCol] !== 0) {
             // console.log('rotate: space is taken')
             return false
           }
         }
       }
     }
-    this.topLeft.col += this.pivot
+    this.topLeft.col = potCol
     this.pivot = 0
     this.rotation = potRot
     this.setShape(potShape)

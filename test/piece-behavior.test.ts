@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Game } from '../src/js/game'
+import { Tet } from '../src/js/tet'
 import {
   createBoard,
   createGame,
   createPiece,
+  legalPivotedITet,
   pieceState,
   pivotedITetRegression
 } from './fixtures/game'
@@ -71,6 +73,41 @@ const shapeRotations: Array<{name: string, type: number, shapes: number[][][]}> 
     ]
   }
 ]
+
+describe('piece construction', () => {
+  it.each([-1, 0, 1, 2, 3, 4, 5, 6])(
+      'preserves supported explicit type %s', (type) => {
+        const {game} = createGame()
+        const tet = new Tet(game, type, () => 0.8)
+
+        expect(tet.type).toBe(type)
+        if (type === 0) expect(tet.shape).toEqual([[1, 1, 1, 1]])
+      })
+
+  it.each([
+    ['absent', undefined],
+    ['NaN', Number.NaN],
+    ['positive infinity', Number.POSITIVE_INFINITY],
+    ['negative infinity', Number.NEGATIVE_INFINITY],
+    ['fraction', 1.5],
+    ['below range', -2],
+    ['above range', 7]
+  ])('randomizes %s input with the controlled source', (_name, type) => {
+    const {game} = createGame()
+    const tet = new Tet(game, type, () => 0.8)
+
+    expect(tet.type).toBe(5)
+    expect(tet.shape).toEqual([[1, 1, 1], [0, 1]])
+  })
+
+  it('keeps a selected first I-Tet without bypassing the S/Z exclusion', () => {
+    const {game} = createGame([0, 4 / 7], false)
+
+    expect(game.currTet?.type).toBe(0)
+    expect(game.currTet?.shape).toEqual([[1, 1, 1, 1]])
+    expect(game.nextTet?.type).toBe(4)
+  })
+})
 
 describe('piece shape and rotation mapping', () => {
   for (const fixture of shapeRotations) {
@@ -177,14 +214,26 @@ describe('rotation collision', () => {
     expect(pieceState(activePiece)).toEqual(before)
   })
 
-  it('characterizes the known pivoted I-Tet regression without fixing it', () => {
+  it('rejects a pivoted I-Tet rotation at its occupied destination', () => {
     const {game, activePiece} = createBoard(pivotedITetRegression)
     if (!activePiece) throw new Error('Expected an active piece')
+    const before = pieceState(activePiece)
 
     expect(activePiece.pivot).toBe(3)
     expect(game.getLanded()[1][9]).toBe(1)
+    expect(activePiece.rotate()).toBe(false)
+    expect(pieceState(activePiece)).toEqual(before)
+  })
+
+  it('commits a legal pivoted I-Tet destination and resets the pivot', () => {
+    const {activePiece} = createBoard(legalPivotedITet)
+    if (!activePiece) throw new Error('Expected an active piece')
+
+    expect(activePiece.pivot).toBe(3)
     expect(activePiece.rotate()).toBe(true)
-    expect(activePiece.topLeft.col).toBe(9)
+    expect(activePiece.topLeft).toEqual({row: 0, col: 9})
+    expect(activePiece.shape).toEqual([[1], [1], [1], [1]])
+    expect(activePiece.pivot).toBe(0)
   })
 })
 
