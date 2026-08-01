@@ -1,70 +1,18 @@
-// https://www.typescriptlang.org/docs/handbook/compiler-options.html
 {
-  "compileOnSave": false,
   "compilerOptions": {
-    /* Basic Options */
     "target": "es2015",
-    // "target": "es5",
-    // "target": "esnext",
-    // "module": "commonjs",
-    "module": "es2015",
-    // "lib": ["es2015", "dom"],
-    // "allowJs": true,
-    // "checkJs": true,
-    // "jsx": "preserve",
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "jsx": "react",
-    "declaration": true,
-    "sourceMap": true,
-    // "outFile": "./",
-    "outDir": "app/",
-    // "rootDir": "./",
-    // "removeComments": true,
-    // "noEmit": true,
-    // "importHelpers": true,
-    // "downlevelIteration": true,
-    // "isolatedModules": true,
-
-    /* Strict Type-Checking Options */
+    "noEmit": true,
     "strict": true,
-    "noImplicitAny": true,
-    // "strictNullChecks": true,
-    // "strictFunctionTypes": true,
-    // "strictPropertyInitialization": true,
-    // "noImplicitThis": true,
-    // "alwaysStrict": true,
-
-    /* Additional Checks */
+    "strictPropertyInitialization": false,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
-    // "noFallthroughCasesInSwitch": true,
-
-    /* Module Resolution Options */
-    "moduleResolution": "node",
-    // "baseUrl": "./",
-    // "paths": {},
-    // "rootDirs": [],
-    // "typeRoots": [],
-    // "types": [],
-    // "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
-    // "preserveSymlinks": true,
-
-    /* Source Map Options */
-    // "sourceRoot": "./",
-    // "mapRoot": "./",
-    // "inlineSourceMap": true,
-    // "inlineSources": true,
-
-    /* Experimental Options */
-    // "experimentalDecorators": true,
-    // "emitDecoratorMetadata": true,
-    
-    /* Custom Options */
     "forceConsistentCasingInFileNames": true,
-    "pretty": true,
-    "newLine": "LF",
-    // "skipLibCheck": true,
+    "skipLibCheck": true
   },
-  // "include": ["src/**/*"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
 }
