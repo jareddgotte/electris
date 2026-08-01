@@ -12,6 +12,8 @@ This is the authoritative repository guide for contributors and coding agents. S
 - `webpack.config.js`: main and renderer production bundles.
 - `package.json`: canonical scripts and supported tool engines.
 - `.github/pull_request_template.md`: required PR description structure.
+- `test/fixtures/game.ts`: reusable fixtures for characterizing production piece and
+  board behavior; provides deterministic runtime dependencies and board fixtures.
 
 ## Source provenance
 
@@ -51,6 +53,7 @@ Packaging writes ignored artifacts under `dist/`.
 Run commands from the repository root:
 
 - `npm ci` — frozen dependency installation.
+- `npm test` — run the deterministic, headless behavioral test suite (vitest).
 - `npm run lint` — lint TypeScript and TSX sources.
 - `npm run typecheck` — type-check without emitting files.
 - `npm run build` — clean generated app entries, type-check, and bundle.
@@ -58,10 +61,10 @@ Run commands from the repository root:
 - `npm run package` — create local macOS, Linux, and Windows package artifacts, then
   ZIP them through the npm `postpackage` lifecycle.
 
-For source or build configuration changes, run lint, typecheck, and build. Add and
-run behavioral tests for changed behavior; if the repository does not yet provide a
-suitable test command, add focused test coverage rather than treating manual checks
-as a substitute. For documentation-only changes, verify commands and links against
+For source or build configuration changes, run tests, lint, typecheck, and build. Add
+behavioral tests for changed behavior rather than treating manual checks as a
+substitute; reuse `test/fixtures/game.ts` when characterizing production piece or
+board behavior. For documentation-only changes, verify commands and links against
 the authoritative files and run code validation when the documentation depends on
 build behavior.
 

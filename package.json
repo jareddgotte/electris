@@ -5,7 +5,8 @@
   "main": "app/main.js",
   "scripts": {
     "clean": "rimraf --glob \"app/*.js\" \"app/*.js.map\" \"app/*.html\" \"app/*.d.ts\"",
-    "lint": "eslint \"src/**/*.{ts,tsx}\"",
+    "lint": "eslint \"{src,test}/**/*.{ts,tsx}\"",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "build": "npm run clean && npm run typecheck && webpack --config webpack.config.js",
     "start": "electron ./app/main.js",
@@ -35,6 +36,7 @@
     "ts-loader": "9.6.2",
     "typescript": "6.0.3",
     "typescript-eslint": "8.65.0",
+    "vitest": "4.0.18",
     "webpack": "5.109.2",
     "webpack-cli": "7.2.2",
     "webpack-node-externals": "3.0.0"
