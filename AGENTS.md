@@ -56,15 +56,17 @@ Run commands from the repository root:
 - `npm test` — run the deterministic, headless behavioral test suite (vitest).
 - `npm run lint` — lint TypeScript and TSX sources.
 - `npm run typecheck` — type-check without emitting files.
+- `npm run docs:check` — validate Markdown structure and repository-relative links.
 - `npm run build` — clean generated app entries, type-check, and bundle.
 - `npm start` — launch the previously built `app/main.js`; build first after a clean checkout.
 - `npm run package` — create local macOS, Linux, and Windows package artifacts, then
   ZIP them through the npm `postpackage` lifecycle.
 
-For source or build configuration changes, run tests, lint, typecheck, and build. Add
-behavioral tests for changed behavior rather than treating manual checks as a
-substitute; reuse `test/fixtures/game.ts` when characterizing production piece or
-board behavior. For documentation-only changes, verify commands and links against
+For source or build configuration changes, run tests, lint, typecheck, documentation
+checks, and build. Add behavioral tests for changed behavior rather than treating
+manual checks as a substitute; reuse `test/fixtures/game.ts` when
+characterizing production piece or board behavior. For documentation-only changes,
+verify commands and links against
 the authoritative files and run code validation when the documentation depends on
 build behavior.
 
