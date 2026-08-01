@@ -1,6 +1,26 @@
 import { Store } from './store'
 import { Tet } from './tet'
 
+interface GameStore {
+  get(key: string): any
+  set(key: string, value: any): void
+}
+
+interface GameTimer {
+  setInterval(callback: () => void, delay: number): number
+  clearInterval(intervalId: number | undefined): void
+}
+
+/** Optional runtime dependencies. Defaults preserve the Electron behavior. */
+export interface GameOptions {
+  random?: () => number
+  timer?: GameTimer
+  canvas?: HTMLCanvasElement
+  highScoresElement?: {innerHTML: string} | null
+  store?: GameStore
+  bindEvents?: boolean
+}
+
 /** Represents our game board and interface */
 export class Game {
   // Public Vars
@@ -97,9 +117,11 @@ export class Game {
    * This is the name of the high score list DOM element for which we are going
    * to show our user their past high scores.
    */
-  private highScoresListId: string
+  private highScoresElement: {innerHTML: string} | null
 
-  private store: Store
+  private store: GameStore
+  private randomSource: () => number
+  private timer: GameTimer
 
   /**
    * Represents all of the functions which generate and control the game board.
@@ -108,13 +130,18 @@ export class Game {
    *     from which this Game class was created.
    * @param highScoresListId This is the id of the list for which we are going
    *     to list out the user's past high scores.
-   * @param [devMode] This is the option to set the game to be initially in
+   * @param [devModeOn] This is the option to set the game to be initially in
    *     Developer's Mode.
+   * @param [options] Runtime dependencies used by Electron unless overridden.
    */
-  constructor(canvasId: string, highScoresListId: string, devModeOn = false) {
+  constructor(
+      canvasId: string,
+      highScoresListId: string,
+      devModeOn = false,
+      options: GameOptions = {}) {
     // Force instantiation
     if (!(this instanceof Game)) {
-      return new Game(canvasId, highScoresListId, devModeOn)
+      return new Game(canvasId, highScoresListId, devModeOn, options)
     }
 
     // TODO: Add ability to pass in {options}
@@ -136,7 +163,8 @@ export class Game {
     // Assume block width and height will always be the same:
     this.blockS = this.canvasWidth / 10
 
-    this.canvas = document.getElementById(canvasId) as HTMLCanvasElement
+    this.canvas = options.canvas ||
+        document.getElementById(canvasId) as HTMLCanvasElement
     this.canvas.width = this.canvasWidth
     this.canvas.height = 2 * this.canvasWidth
 
@@ -146,9 +174,16 @@ export class Game {
 
     this.landed = []
     this.paused = true
-    this.highScoresListId = highScoresListId
+    this.highScoresElement = options.highScoresElement === undefined
+      ? document.getElementById(highScoresListId)
+      : options.highScoresElement
 
-    this.store = new Store({
+    this.randomSource = options.random || Math.random
+    this.timer = options.timer || {
+      setInterval: (callback, delay) => window.setInterval(callback, delay),
+      clearInterval: (intervalId) => window.clearInterval(intervalId)
+    }
+    this.store = options.store || new Store({
       configName: 'config',
       defaults: {
         highScores: [this.score, 0, 0, 0, 0, 0, 0, 0, 0, 0]
@@ -158,7 +193,7 @@ export class Game {
     // Init functions
     this.displayHighScores()
     this.createTet()
-    this.handleEvents()
+    if (options.bindEvents !== false) this.handleEvents()
   }
 
   /**
@@ -177,7 +212,7 @@ export class Game {
     window.onblur = () => {
       if (that.gameOver === false) {
         pausedBeforeBlur = that.paused
-        clearInterval(that.loop)
+        that.clearGameInterval(that.loop)
         that.paused = true
         that.draw()
       }
@@ -229,7 +264,7 @@ export class Game {
           if (that.canTetMove() === true && that.currTet) {
             let skip = false
             if (that.newTet) skip = true
-            if (!skip) clearInterval(that.loop)
+            if (!skip) that.clearGameInterval(that.loop)
             that.currTet.moveDown()
             that.draw()
             if (!skip && !that.paused) that.tetDownLoop()
@@ -238,7 +273,7 @@ export class Game {
         case 80: case 83: // p for pause, s for stop (they do same thing)
           if (that.gameOver === false) {
             if (!that.paused) {
-              clearInterval(that.loop)
+              that.clearGameInterval(that.loop)
               that.paused = true
               that.draw()
             } else {
@@ -253,7 +288,7 @@ export class Game {
           break
         case 82: // r for reset
           that.allTets = []
-          clearInterval(that.loop)
+          that.clearGameInterval(that.loop)
           that.currTet = null
           that.gameOver = false
           that.newTet = true
@@ -287,9 +322,9 @@ export class Game {
         case 71: // g for game over
           if (that.devModeOn) {
             that.gameOver = true
-            clearInterval(that.loop)
+            that.clearGameInterval(that.loop)
             // that.score = 1939999955999999 // near max
-            that.score = Math.random() * 100000
+            that.score = that.randomValue() * 100000
             that.updateScore = true
             that.draw()
           }
@@ -356,9 +391,7 @@ export class Game {
     for (let i = 0; i < len; i++) {
       html += '<li>' + this.commaSeparateNumber(highScores[i]) + '</li>'
     }
-    // TODO: Figure out of this is the best implementation of this
-    let elem: any = document.getElementById(this.highScoresListId) || false
-    if (elem) elem.innerHTML = html
+    if (this.highScoresElement) this.highScoresElement.innerHTML = html
   }
 
   /** This method draws everything to the canvas. */
@@ -579,7 +612,7 @@ export class Game {
   createTet() {
     // Make sure first Tet is not an S or Z
     if (this.nextTet === null) {
-      let t: number = Math.floor(Math.random() * 7)
+      let t: number = Math.floor(this.randomValue() * 7)
       // TODO: Instead of doing this, keep randomly generating a number until
       // it's not a 4 or 6. This way there isn't a higher likelihood of starting
       // off with a 3 or 5 (should be as fairly random as possible) - plus there
@@ -588,13 +621,13 @@ export class Game {
       if (t === 4 || t === 6) {
         t--
       }
-      this.nextTet = new Tet(this, t)
+      this.nextTet = new Tet(this, t, this.randomSource)
     }
 
     // Build first Tet and next Tet
     if (this.newTet) {
       this.currTet = this.nextTet
-      this.nextTet = new Tet(this)
+      this.nextTet = new Tet(this, undefined, this.randomSource)
     }
     this.newTet = false
 
@@ -609,7 +642,7 @@ export class Game {
       this.nextTet = this.currTet
       this.gameOver = true
       this.newTet = true
-      clearInterval(this.loop)
+      this.clearGameInterval(this.loop)
       return
     } else {
       this.allTets.push(this.currTet)
@@ -625,15 +658,30 @@ export class Game {
   tetDownLoop() {
     // safe guard to prevent multiple loops from spawning before clearing it out
     // first
-    clearInterval(this.loop)
+    this.clearGameInterval(this.loop)
 
     const that = this
-    this.loop = window.setInterval(() => {
-      if (that.dropOnce && that.newTet) clearInterval(that.loop)
+    this.loop = this.setGameInterval(() => {
+      if (that.dropOnce && that.newTet) that.clearGameInterval(that.loop)
       if (that.newTet) that.createTet()
       else if (!that.paused && that.currTet) that.currTet.moveDown()
       that.draw()
     }, that.dropInterval)
+  }
+
+  /** Returns a value from the configured random source. */
+  randomValue() {
+    return this.randomSource()
+  }
+
+  /** Schedules game work with the configured timer. */
+  setGameInterval(callback: () => void, delay: number) {
+    return this.timer.setInterval(callback, delay)
+  }
+
+  /** Clears game work with the configured timer. */
+  clearGameInterval(intervalId: number | undefined) {
+    this.timer.clearInterval(intervalId)
   }
 
   /**

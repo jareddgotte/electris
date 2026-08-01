@@ -59,11 +59,12 @@ export class Tet {
   /**
    * @param game Game object which the Tet will be in
    * @param [type] Shape of Tet desired, determined randomly if undefined.
+   * @param [random] Random source used when type is undefined.
    */
-  constructor(game: Game, type?: number) {
+  constructor(game: Game, type?: number, random: () => number = Math.random) {
     // Force instantiation
     if (!(this instanceof Tet)) {
-      return new Tet(game, type)
+      return new Tet(game, type, random)
     }
 
     // FIXME: check if game exists
@@ -71,7 +72,7 @@ export class Tet {
 
     this.type = (type && type >= -1 && type < 7)
       ? type
-      : Math.floor(Math.random() * 7)
+      : Math.floor(random() * 7)
 
     // TODO: if type is -1, then it is a single square or fragmented?
     if (this.type > -1) {
@@ -535,7 +536,7 @@ export class Tet {
     // let movingTets = [0] // TODO: why is this 0?
     let movingTets = []
     let tetsMoved: boolean
-    const moveLoop = window.setInterval(() => {
+    const moveLoop = this.game.setGameInterval(() => {
       movingTets = []
       tetsMoved = true
       while (tetsMoved) {
@@ -561,7 +562,7 @@ export class Tet {
       }
       that.game.draw()
       if (movingTets.length === 0) {
-        clearInterval(moveLoop)
+        that.game.clearGameInterval(moveLoop)
         that.collided()
       }
     }, 200)
