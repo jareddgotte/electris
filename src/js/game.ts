@@ -114,8 +114,8 @@ export class Game {
   /** TODO: Add comment */
   private paused: boolean
   /**
-   * This is the name of the high score list DOM element for which we are going
-   * to show our user their past high scores.
+   * This is the high score list DOM element (or an injected substitute) for
+   * which we are going to show our user their past high scores.
    */
   private highScoresElement: {innerHTML: string} | null
 
@@ -144,7 +144,6 @@ export class Game {
       return new Game(canvasId, highScoresListId, devModeOn, options)
     }
 
-    // TODO: Add ability to pass in {options}
     this.devModeOn = devModeOn
     this.newTet = true
     this.currTet = null
