@@ -1,94 +1,66 @@
-const path = require('path')
 const fs = require('fs')
-const nodeExternals = require('webpack-node-externals')
-const { CheckerPlugin } = require('awesome-typescript-loader')
-const CleanWebpackPlugin = require('clean-webpack-plugin')
-const HardSourceWebpackPlugin = require('hard-source-webpack-plugin')
-const webpack = require('webpack')
+const path = require('path')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
+const nodeExternals = require('webpack-node-externals')
 
-const rendererEntries =
-  fs.readdirSync('src')
-    .filter(f => f.match(/.*\.tsx$/))
-    .map(f => path.join('src', f))
-    .reduce((memo, file) => {
-      memo[path.basename(file, path.extname(file))] = path.resolve(file)
-      return memo
-    }, {})
+const rendererEntries = fs.readdirSync(path.resolve(__dirname, 'src'))
+  .filter(file => file.endsWith('.tsx'))
+  .reduce((entries, file) => {
+    entries[path.basename(file, path.extname(file))] = path.resolve(__dirname, 'src', file)
+    return entries
+  }, {})
 
 const commonConfig = {
   mode: 'production',
-  // mode: 'development',
+  devtool: 'source-map',
   output: {
     path: path.resolve(__dirname, 'app'),
     filename: '[name].js'
   },
   resolve: {
-    extensions: ['.ts', '.tsx']
-  },
-  node: {
-    __dirname: false
+    extensions: ['.ts', '.tsx', '.js']
   },
   module: {
     rules: [
       {
         test: /\.tsx?$/,
-        use: [
-          {
-            loader: 'awesome-typescript-loader',
-            options: {
-              typeCheck: true,
-              emitErrors: true,
-              colors: true,
-              useCache: true,
-              forceIsolatedModules: true,
-              reportFiles: ['./src/**/*.{ts,tsx}']
-            }
+        exclude: /node_modules/,
+        use: {
+          loader: 'ts-loader',
+          options: {
+            transpileOnly: true
           }
-        ]
+        }
       }
     ]
   }
 }
 
 module.exports = [
-  Object.assign({
-    target: 'electron-main',
+  {
+    ...commonConfig,
+    name: 'main',
+    target: 'electron2-main',
     entry: {
       main: './src/main.ts',
       tetris: './src/js/tetris.ts'
     },
-    externals: [nodeExternals()],
-    plugins: [
-      new CheckerPlugin(),
-      new CleanWebpackPlugin(['./app/'], {
-        exclude: ['./app/*.d.ts', 'css', 'img', 'js'],
-        verbose: true
-      }),
-      new HardSourceWebpackPlugin(),
-      new webpack.SourceMapDevToolPlugin({
-        filename: '[name].js.map'
-      })
-    ]
-  }, commonConfig),
-  Object.assign({
-    target: 'electron-renderer',
+    externals: [nodeExternals()]
+  },
+  {
+    ...commonConfig,
+    name: 'renderer',
+    target: 'electron2-renderer',
     entry: rendererEntries,
     externals: [nodeExternals()],
-    plugins: [
-      new CheckerPlugin(),
-      new HardSourceWebpackPlugin(),
-      new webpack.SourceMapDevToolPlugin({
-        filename: '[name].js.map'
-      }),
-      ...Object.keys(rendererEntries).map(k =>
-        new HtmlWebpackPlugin({
-          filename: `${k}.html`,
-          chunks: [k],
-          template: fs.existsSync(`src/${k}.ejs`)
-            ? `src/${k}.ejs`
-            : 'src/default.ejs'
-        }))
-    ]
-  }, commonConfig)
+    plugins: Object.keys(rendererEntries).map(name =>
+      new HtmlWebpackPlugin({
+        filename: `${name}.html`,
+        chunks: [name],
+        template: fs.existsSync(path.resolve(__dirname, 'src', `${name}.ejs`))
+          ? path.resolve(__dirname, 'src', `${name}.ejs`)
+          : path.resolve(__dirname, 'src', 'default.ejs')
+      })
+    )
+  }
 ]

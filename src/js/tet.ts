@@ -293,7 +293,6 @@ export class Tet {
     // NOTE: Trailing zeros were removed and replaced by spaces in the following
     // matrices as a reasonable optimization for gaming (preventing unnecessary
     // loop iterations).
-    /* tslint:disable:no-multi-spaces */
     const matrixMatrix = [
       // I
       [
@@ -327,7 +326,6 @@ export class Tet {
         [[1,1  ],[0,1,1]], [[0,1],[1,1],[1  ]]
       ]
     ]
-    /* tslint:enable:no-multi-spaces */
     const m = matrixMatrix[this.type]
     switch (this.type) {
       case 0: // I needs 3 pivots
@@ -372,7 +370,6 @@ export class Tet {
     // NOTE: Trailing zeros were removed and replaced by spaces in the following
     // matrices as a gaming optimization (preventing unnecessary loop
     // iterations).
-    /* tslint:disable:no-multi-spaces */
     const periMatrix = [
       // fragments
       [ [[1]],               [[0,0],[0,1],[1,1],[1,0]] ],
@@ -411,7 +408,6 @@ export class Tet {
       [ [[1,1  ],[0,1,1]],   [[0,0],[0,1],[1,1],[1,2],[3,2],[3,1],[2,1],[2,0]] ],
       [ [[0,1],[1,1],[1  ]], [[1,0],[1,1],[0,1],[0,3],[1,3],[1,2],[2,2],[2,0]] ]
     ]
-    /* tslint:enable:no-multi-spaces */
     let checkNextShape: boolean
     // Iterate through periMatrix to see if the given shape matches a shape
     // within this array
