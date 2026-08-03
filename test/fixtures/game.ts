@@ -124,7 +124,7 @@ export function createBoard(fixture: BoardFixture = {}) {
   return {...result, activePiece}
 }
 
-/** Setup for the known issue: rotation checks the I-Tet before applying pivot. */
+/** A pivoted I-Tet whose rotation destination contains a landed cell. */
 export const pivotedITetRegression: BoardFixture = {
   activePiece: {
     type: 0,
@@ -133,6 +133,16 @@ export const pivotedITetRegression: BoardFixture = {
     pivot: 3
   },
   landedCells: [{row: 1, col: 9}]
+}
+
+/** A pivoted I-Tet with an open rotation destination. */
+export const legalPivotedITet: BoardFixture = {
+  activePiece: {
+    type: 0,
+    position: {row: 0, col: 6},
+    rotation: 0,
+    pivot: 3
+  }
 }
 
 export function pieceState(tet: Tet) {
