@@ -40,19 +40,18 @@ module.exports = [
   {
     ...commonConfig,
     name: 'main',
-    target: 'electron2-main',
+    target: 'electron-main',
     entry: {
       main: './src/main.ts',
-      tetris: './src/js/tetris.ts'
+      preload: './src/preload.ts'
     },
     externals: [nodeExternals()]
   },
   {
     ...commonConfig,
     name: 'renderer',
-    target: 'electron2-renderer',
+    target: 'electron-renderer',
     entry: rendererEntries,
-    externals: [nodeExternals()],
     plugins: Object.keys(rendererEntries).map(name =>
       new HtmlWebpackPlugin({
         filename: `${name}.html`,

@@ -5,15 +5,18 @@ This is the authoritative repository guide for contributors and coding agents. S
 
 ## Repository map
 
-- `src/main.ts`: Electron main-process lifecycle and window creation.
+- `src/main.ts` and `src/main/*.ts`: Electron main-process lifecycle, secure
+  window creation, IPC registration, and score persistence.
+- `src/preload.ts`: typed isolated bridge exposed to the renderer.
 - `src/renderer.tsx` and `src/*.ejs`: renderer UI and HTML templates.
-- `src/js/`: gameplay, tetromino, and high-score persistence code.
+- `src/js/`: gameplay, tetromino logic, and renderer-side bootstrap code.
+- `src/electris.ts`: shared bridge and high-score types.
 - `app/css/` and `app/img/`: tracked renderer assets.
-- `webpack.config.js`: main and renderer production bundles.
+- `webpack.config.js`: main, preload, and renderer production bundles.
 - `package.json`: canonical scripts and supported tool engines.
 - `.github/pull_request_template.md`: required PR description structure.
 - `.github/workflows/pull-request.yml`: least-privilege pull-request CI (lint,
-  typecheck, tests, documentation check, build).
+  typecheck, tests, smoke, documentation check, build).
 - `test/fixtures/game.ts`: reusable fixtures for characterizing production piece and
   board behavior; provides deterministic runtime dependencies and board fixtures.
 
@@ -26,14 +29,11 @@ copy its guidance, or import commits by assumption.
 
 ## Architecture and invariants
 
-- The main process owns application lifecycle and native `BrowserWindow` creation.
+- The main process owns application lifecycle, native `BrowserWindow` creation,
+  IPC validation, external links, and score persistence.
+- The preload layer exposes only the typed `window.electris` bridge.
 - The renderer owns React rendering, browser events, canvas gameplay, and the current
   game orchestration.
-- There is no preload boundary yet. Legacy renderer code currently reaches Electron
-  `remote` and Node filesystem APIs for window controls and score persistence. Do not
-  describe this as secure or already migrated. Future security work should move
-  privileged operations behind a narrow, typed preload API, with the main process
-  retaining native authority and the renderer consuming only that API.
 - Treat established board dimensions, piece movement/rotation/collision, line
   clearing, scoring, pause/restart behavior, and high-score behavior as gameplay
   engine invariants unless a focused change intentionally revises them.
@@ -45,8 +45,9 @@ copy its guidance, or import commits by assumption.
 
 ## Generated files
 
-`npm run build` generates `app/main.js`, `app/tetris.js`, `app/renderer.js`,
-`app/renderer.html`, and source maps. They are ignored and must not be committed.
+`npm run build` generates `app/main.js`, `app/preload.js`, `app/renderer.js`,
+`app/renderer.js.LICENSE.txt`, `app/renderer.html`, and source maps. They are
+ignored and must not be committed.
 The assets under `app/css/` and `app/img/` are source files and remain tracked.
 Packaging writes ignored artifacts under `dist/`.
 
@@ -59,18 +60,18 @@ Run commands from the repository root:
 - `npm run lint` — lint TypeScript and TSX sources.
 - `npm run typecheck` — type-check without emitting files.
 - `npm run docs:check` — validate Markdown structure and repository-relative links.
+- `npm run smoke` — run the Electron security/contract smoke suite.
 - `npm run build` — clean generated app entries, type-check, and bundle.
 - `npm start` — launch the previously built `app/main.js`; build first after a clean checkout.
 - `npm run package` — create local macOS, Linux, and Windows package artifacts, then
   ZIP them through the npm `postpackage` lifecycle.
 
-For source or build configuration changes, run tests, lint, typecheck, documentation
-checks, and build. Add behavioral tests for changed behavior rather than treating
-manual checks as a substitute; reuse `test/fixtures/game.ts` when
+For source or build configuration changes, run tests, lint, typecheck, smoke,
+documentation checks, and build. Add behavioral tests for changed behavior rather
+than treating manual checks as a substitute; reuse `test/fixtures/game.ts` when
 characterizing production piece or board behavior. For documentation-only changes,
-verify commands and links against
-the authoritative files and run code validation when the documentation depends on
-build behavior.
+verify commands and links against the authoritative files and run code validation
+when the documentation depends on build behavior.
 
 Run `npm run package` only when packaging is affected or explicitly requested: it is
 slower, may download platform runtimes, requires a local `zip` executable, and

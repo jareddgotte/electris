@@ -42,6 +42,9 @@ jobs:
       - name: Run deterministic tests
         run: npm test
 
+      - name: Run Electron security smoke suite
+        run: npm run smoke
+
       - name: Check documentation
         run: npm run docs:check
 

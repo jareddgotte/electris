@@ -1,5 +1,6 @@
 import { Game } from '../../src/js/game'
 import { Tet } from '../../src/js/tet'
+import type { HighScoreList } from '../../src/electris'
 
 export interface PositionFixture {
   row: number
@@ -69,12 +70,14 @@ export function createGame(randomValues = [0.2, 0.4], resetBoard = true) {
   } as unknown as HTMLCanvasElement
   const highScoresElement = {innerHTML: ''}
   const timer = new ManualTimer()
+  const store = new MemoryStore()
   const game = new Game('unused-canvas', 'unused-scores', false, {
     random: sequenceRandom(randomValues),
     timer,
     canvas,
     highScoresElement,
-    store: new MemoryStore(),
+    highScores: store.get('highScores') as HighScoreList,
+    persistHighScores: (value) => store.set('highScores', value),
     bindEvents: false
   })
 

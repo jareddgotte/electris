@@ -1,10 +1,5 @@
-import { Store } from './store'
+import { DEFAULT_HIGH_SCORES, normalizeHighScores, type HighScoreList } from '../electris'
 import { Tet } from './tet'
-
-interface GameStore {
-  get(key: string): any
-  set(key: string, value: any): void
-}
 
 interface GameTimer {
   setInterval(callback: () => void, delay: number): number
@@ -17,7 +12,8 @@ export interface GameOptions {
   timer?: GameTimer
   canvas?: HTMLCanvasElement
   highScoresElement?: {innerHTML: string} | null
-  store?: GameStore
+  highScores?: HighScoreList
+  persistHighScores?: (highScores: HighScoreList) => void | Promise<void>
   bindEvents?: boolean
 }
 
@@ -118,8 +114,8 @@ export class Game {
    * which we are going to show our user their past high scores.
    */
   private highScoresElement: {innerHTML: string} | null
-
-  private store: GameStore
+  private highScores: HighScoreList
+  private persistHighScores: (highScores: HighScoreList) => void | Promise<void>
   private randomSource: () => number
   private timer: GameTimer
 
@@ -182,12 +178,10 @@ export class Game {
       setInterval: (callback, delay) => window.setInterval(callback, delay),
       clearInterval: (intervalId) => window.clearInterval(intervalId)
     }
-    this.store = options.store || new Store({
-      configName: 'config',
-      defaults: {
-        highScores: [this.score, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-      }
-    })
+    this.highScores = options.highScores ?
+      normalizeHighScores(options.highScores) :
+      [...DEFAULT_HIGH_SCORES] as HighScoreList
+    this.persistHighScores = options.persistHighScores || (() => undefined)
 
     // Init functions
     this.displayHighScores()
@@ -747,7 +741,7 @@ export class Game {
    * @returns This is the list of the high scores of the user.
    */
   getHighScores() {
-    return this.store.get('highScores')
+    return [...this.highScores] as HighScoreList
   }
 
   /**
@@ -757,7 +751,10 @@ export class Game {
    */
   setHighScores(v: number[]) {
     // console.log('setting high scores', v) // debug
-    this.store.set('highScores', v)
+    this.highScores = normalizeHighScores(v)
+    void Promise.resolve(this.persistHighScores(this.highScores)).catch((error) => {
+      console.error('Couldn\'t save high scores:', error)
+    })
   }
 
   /**
@@ -771,7 +768,7 @@ export class Game {
       const hsLen = highScores.length
       for (let i = 0; i < hsLen; i++) {
         if (this.score > highScores[i]) {
-          highScores.splice(i, 0, this.score.toFixed(2))
+          highScores.splice(i, 0, Number(this.score.toFixed(2)))
           break
         }
       }
@@ -780,7 +777,7 @@ export class Game {
       this.updateScore = false
     }
 
-    return highScores
+    return this.getHighScores()
   }
 
   // TODO: This is from TestCase.js

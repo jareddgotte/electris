@@ -2,39 +2,43 @@
  * @author Jared Gotte
  */
 import { Game } from './game'
+import type { ElectrisExternalDestination } from '../electris'
 
-// The collision detection is mostly inspired from the article:
-// http://gamedev.tutsplus.com/tutorials/implementation/implementing-tetris-collision-detection/
-// (by Michael James Williams on Oct 6th 2012).
-// The reason why I did not entirely come up with my own algorithms for
-// everything is for the sake of time.
-
-// Most of the standards I used for Tetris came from
-// http://en.wikipedia.org/wiki/Tetris
-
-/* Nomenclature:
- *
- * user:       Person playing the game.
- * Tet:        Short for Tetrimino (http://en.wikipedia.org/wiki/Tetrimino), or
- *             the name of our main class. I will try to disambiguate within the
- *             comments when necessary.
- * living Tet: Tet in free fall controlled by user.
- * landed Tet: Tet that has landed and is no longer in control by user.
- */
-
-const { shell } = require('electron')
-
-// Open any links externally by default
-document.addEventListener('click', (event) => {
-  if (event.target) {
-    const target: HTMLAnchorElement = event.target as HTMLAnchorElement
-    if (target.tagName === 'A' && target.href.startsWith('http')) {
-      event.preventDefault()
-      shell.openExternal(target.href)
-    }
+function getElectrisLinkDestination(target: EventTarget | null) {
+  if (!(target instanceof Element)) return null
+  const link = target.closest('[data-electris-external]')
+  const destination = link?.getAttribute('data-electris-external')
+  if (destination === 'author' || destination === 'license') {
+    return destination as ElectrisExternalDestination
   }
-})
 
-// Initialize game
-const theGame = new Game('canvas', 'high-scores-list')
-if (!theGame) console.error('Game didn\'t load!', theGame)
+  return null
+}
+
+export async function openElectrisExternal(destination: ElectrisExternalDestination) {
+  try {
+    await window.electris.openExternal(destination)
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+function bindExternalLinkHandling() {
+  document.addEventListener('click', (event) => {
+    const destination = getElectrisLinkDestination(event.target)
+    if (!destination) return
+
+    event.preventDefault()
+    void openElectrisExternal(destination)
+  })
+}
+
+export async function bootstrapTetris() {
+  bindExternalLinkHandling()
+  const highScores = await window.electris.highScores.load()
+  const theGame = new Game('canvas', 'high-scores-list', false, {
+    highScores,
+    persistHighScores: (scores) => window.electris.highScores.save(scores)
+  })
+  if (!theGame) console.error('Game didn\'t load!', theGame)
+}
