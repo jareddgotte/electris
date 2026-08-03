@@ -10,10 +10,11 @@ An Electron port of [js-tetris](https://github.com/jareddgotte/js-tetris), with 
 
 ## Installing
 
-1. Visit this repo's [Releases](https://github.com/jareddgotte/electris/releases) page.
-2. Download the ZIP file for your platform.
-3. Extract the folder where you'd like to install the game.
-4. Launch the game by executing the **electris** file at the root of the folder.
+There is no supported current Electris binary release.
+
+Historical 2018 ZIP releases are kept only as archival artifacts. They are unsupported, not security maintained, and modernization work does not retroactively make those assets current or supported.
+
+If you choose to inspect those archives, use the repo's [Releases](https://github.com/jareddgotte/electris/releases) page as an archive reference only.
 
 ## Security architecture
 
