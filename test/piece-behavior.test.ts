@@ -288,6 +288,14 @@ describe('runtime dependency seams', () => {
     expect(timer.callbacks).toHaveLength(1)
   })
 
+  it('stores inserted high scores as finite numbers in memory', () => {
+    const {game} = createGame()
+    game.setHighScores([100, 90, 80, 70, 60, 50, 40, 30, 20, 10])
+    game.score = 12.5
+
+    expect(game.checkHighScore()).toEqual([100, 90, 80, 70, 60, 50, 40, 30, 20, 12.5])
+  })
+
   it('retains the standard board dimensions', () => {
     expect(Game.BOARD_ROW_NUM).toBe(16)
     expect(Game.BOARD_COL_NUM).toBe(10)

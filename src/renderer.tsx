@@ -1,33 +1,22 @@
 import * as React from 'react'
 import * as ReactDOM from 'react-dom'
-import * as Script from 'react-load-script'
-// import styles from '../src/css/main.css'
-// import styles from './css/main.css'
+import { bootstrapTetris } from './js/tetris'
 
-// Interface for the TopRightBtn properties
 interface TopRightBtnProps {
   id: string
   innerHTML: string
 }
 
-// Top Right Button component
 function TopRightBtn(props: TopRightBtnProps) {
-  // Cache id
   const id = props.id
 
-  // Minimize or close window based on which button was clicked
   function handleClick() {
-    const { remote } = require('electron')
-
-    // Strip "Button" from the id
     switch (id.substr(0, id.length - 6)) {
-      // Minimize window when "– button" at top right is clicked
       case 'minimize':
-        remote.getCurrentWindow().minimize()
+        void window.electris.window.minimize()
         break
-      // Close window when "× button" at top right is clicked
       case 'close':
-        remote.getCurrentWindow().close()
+        void window.electris.window.close()
         break
     }
   }
@@ -43,6 +32,10 @@ function TopRightBtn(props: TopRightBtnProps) {
 }
 
 class App extends React.Component {
+  componentDidMount() {
+    void bootstrapTetris()
+  }
+
   renderTopRightBtn(id: string, innerHTML: string) {
     return (
       <TopRightBtn
@@ -120,12 +113,8 @@ class App extends React.Component {
           </section>
         </main>
         <div id="footer">
-          <span>&copy; 2018 <a href="http://www.jaredgotte.com/">Jared Gotte</a>; licensed under <a href="https://opensource.org/licenses/ISC">ISC</a></span>
+          <span>&copy; 2018 <a href="#author" data-electris-external="author">Jared Gotte</a>; licensed under <a href="#license" data-electris-external="license">ISC</a></span>
         </div>
-
-        {/* <script src="tetris.js"></script>
-        Inline JS code now inserted at the bottom of tetris.js */}
-        <Script url="tetris.js" />
       </React.Fragment>
     )
   }
