@@ -85,6 +85,13 @@ Commit `package-lock.json` whenever an intentional manifest or dependency change
 updates it; do not regenerate it for unrelated work. Follow the PR title and
 description conventions in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
+- Automated review workflows can fail silently; confirm that a review comment or
+  resolved thread actually appeared instead of trusting a green check.
+- The reviewer workflow refuses to run when the PR changes a workflow file; see
+  the inline comments in [`.github/workflows/claude-code-review.yml`](.github/workflows/claude-code-review.yml)
+  and [`.github/workflows/claude.yml`](.github/workflows/claude.yml) for the exact
+  guard and publication limits.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
