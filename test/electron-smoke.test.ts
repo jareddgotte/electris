@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('react-dom', () => ({
+  render: vi.fn()
+}))
 import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
@@ -245,6 +249,39 @@ describe('IPC sender and external-link restrictions', () => {
 
     expect(shellOpenExternal).toHaveBeenCalledWith('https://www.jaredgotte.com/')
     await expect(loadScores({sender: {}, senderFrame: {}})).resolves.toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+  })
+})
+
+describe('renderer bridge actions', () => {
+  it('suppresses rejected openExternal and window control promises', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    ;(globalThis as any).document = {
+      addEventListener: vi.fn(),
+      getElementById: vi.fn(() => ({}))
+    }
+    ;(globalThis as any).window = {
+      electris: {
+        openExternal: vi.fn().mockRejectedValue(new Error('blocked external link')),
+        window: {
+          minimize: vi.fn().mockRejectedValue(new Error('blocked minimize')),
+          close: vi.fn().mockRejectedValue(new Error('blocked close'))
+        },
+        highScores: {
+          load: vi.fn().mockResolvedValue([10, 9, 8, 7, 6, 5, 4, 3, 2, 1]),
+          save: vi.fn().mockResolvedValue(undefined)
+        }
+      }
+    }
+
+    const {openElectrisExternal} = await import('../src/js/tetris')
+    const {invokeTopRightButtonAction} = await import('../src/renderer')
+
+    await expect(openElectrisExternal('author')).resolves.toBeUndefined()
+    await expect(invokeTopRightButtonAction('minimize')).resolves.toBeUndefined()
+    await expect(invokeTopRightButtonAction('close')).resolves.toBeUndefined()
+
+    expect(consoleError).toHaveBeenCalledTimes(3)
+    consoleError.mockRestore()
   })
 })
 

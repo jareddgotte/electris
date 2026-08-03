@@ -15,13 +15,21 @@ function getElectrisLinkDestination(target: EventTarget | null) {
   return null
 }
 
+export async function openElectrisExternal(destination: ElectrisExternalDestination) {
+  try {
+    await window.electris.openExternal(destination)
+  } catch (error) {
+    console.error(error)
+  }
+}
+
 function bindExternalLinkHandling() {
   document.addEventListener('click', (event) => {
     const destination = getElectrisLinkDestination(event.target)
     if (!destination) return
 
     event.preventDefault()
-    void window.electris.openExternal(destination)
+    void openElectrisExternal(destination)
   })
 }
 

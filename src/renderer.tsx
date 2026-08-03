@@ -7,16 +7,24 @@ interface TopRightBtnProps {
   innerHTML: string
 }
 
+export async function invokeTopRightButtonAction(action: 'minimize' | 'close') {
+  try {
+    await window.electris.window[action]()
+  } catch (error) {
+    console.error(error)
+  }
+}
+
 function TopRightBtn(props: TopRightBtnProps) {
   const id = props.id
 
   function handleClick() {
     switch (id.substr(0, id.length - 6)) {
       case 'minimize':
-        void window.electris.window.minimize()
+        void invokeTopRightButtonAction('minimize')
         break
       case 'close':
-        void window.electris.window.close()
+        void invokeTopRightButtonAction('close')
         break
     }
   }
@@ -33,7 +41,9 @@ function TopRightBtn(props: TopRightBtnProps) {
 
 class App extends React.Component {
   componentDidMount() {
-    void bootstrapTetris()
+    void bootstrapTetris().catch((error) => {
+      console.error(error)
+    })
   }
 
   renderTopRightBtn(id: string, innerHTML: string) {

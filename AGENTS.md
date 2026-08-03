@@ -5,8 +5,8 @@ This is the authoritative repository guide for contributors and coding agents. S
 
 ## Repository map
 
-- `src/main/*.ts`: Electron main-process lifecycle, secure window creation, IPC
-  registration, and score persistence.
+- `src/main.ts` and `src/main/*.ts`: Electron main-process lifecycle, secure
+  window creation, IPC registration, and score persistence.
 - `src/preload.ts`: typed isolated bridge exposed to the renderer.
 - `src/renderer.tsx` and `src/*.ejs`: renderer UI and HTML templates.
 - `src/js/`: gameplay, tetromino logic, and renderer-side bootstrap code.
