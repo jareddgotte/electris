@@ -16,28 +16,27 @@ function isElectrisDestination(value: unknown): value is ElectrisExternalDestina
   return ELECTRIS_EXTERNAL_DESTINATIONS.includes(value as ElectrisExternalDestination)
 }
 
-function assertElectrisWindow(window: BrowserWindow | null, sender: Electron.WebContents) {
+function getSenderWindow(sender: Electron.WebContents) {
   const senderWindow = BrowserWindow.fromWebContents(sender)
-  if (!window || senderWindow !== window) {
+  if (!senderWindow) {
     throw new Error('Blocked request from an unrelated sender')
   }
+
+  return senderWindow
 }
 
 export function registerElectrisIpcHandlers(
-    mainWindow: BrowserWindow,
     highScoreStore = new HighScoreStore()): ElectrisIpcHandlers {
   ipcMain.handle('electris:window:minimize', async (event) => {
-    assertElectrisWindow(mainWindow, event.sender)
-    mainWindow.minimize()
+    getSenderWindow(event.sender).minimize()
   })
 
   ipcMain.handle('electris:window:close', async (event) => {
-    assertElectrisWindow(mainWindow, event.sender)
-    mainWindow.close()
+    getSenderWindow(event.sender).close()
   })
 
   ipcMain.handle('electris:external:open', async (event, destination: unknown) => {
-    assertElectrisWindow(mainWindow, event.sender)
+    getSenderWindow(event.sender)
     if (!isElectrisDestination(destination)) {
       throw new Error('Blocked external destination request')
     }
@@ -46,12 +45,12 @@ export function registerElectrisIpcHandlers(
   })
 
   ipcMain.handle('electris:high-scores:load', async (event) => {
-    assertElectrisWindow(mainWindow, event.sender)
+    getSenderWindow(event.sender)
     return highScoreStore.load()
   })
 
   ipcMain.handle('electris:high-scores:save', async (event, highScores: HighScoreList) => {
-    assertElectrisWindow(mainWindow, event.sender)
+    getSenderWindow(event.sender)
     await highScoreStore.save(highScores)
   })
 

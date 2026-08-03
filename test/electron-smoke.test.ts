@@ -148,15 +148,15 @@ describe('window security and preload contracts', () => {
 })
 
 describe('high-score persistence', () => {
-  it('loads legacy compressed scores, normalizes them, and writes the migrated file', async () => {
+  it('loads and saves compressed scores in the current userData path', async () => {
     const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electris-smoke-'))
     appPaths = {
-      appData: path.join(tmpRoot, 'legacy-app-data'),
-      userData: path.join(tmpRoot, 'modern-user-data')
+      appData: path.join(tmpRoot, 'app-data'),
+      userData: path.join(tmpRoot, 'user-data')
     }
-    await fs.mkdir(path.join(appPaths.appData, 'electris'), {recursive: true})
+    await fs.mkdir(appPaths.userData, {recursive: true})
     await fs.writeFile(
-        path.join(appPaths.appData, 'electris', 'Electris.config.dat'),
+        path.join(appPaths.userData, 'Electris.config.dat'),
         await deflate(Buffer.from(JSON.stringify(['9', '8', 7, 6, 5, 4, 3, 2, 1, 0]))))
 
     const {HighScoreStore} = await import('../src/main/high-scores')
@@ -164,16 +164,16 @@ describe('high-score persistence', () => {
     const scores = await store.load()
 
     expect(scores).toEqual([9, 8, 7, 6, 5, 4, 3, 2, 1, 0])
-    const written = await fs.readFile(
-        path.join(appPaths.userData, 'Electris.config.dat'))
+    await store.save([10, 9, 8, 7, 6, 5, 4, 3, 2, 1])
+    const written = await fs.readFile(path.join(appPaths.userData, 'Electris.config.dat'))
     expect(written.length).toBeGreaterThan(0)
   })
 
   it('falls back to the zero list when data is malformed', async () => {
     const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electris-smoke-'))
     appPaths = {
-      appData: path.join(tmpRoot, 'legacy-app-data'),
-      userData: path.join(tmpRoot, 'modern-user-data')
+      appData: path.join(tmpRoot, 'app-data'),
+      userData: path.join(tmpRoot, 'user-data')
     }
     await fs.mkdir(appPaths.userData, {recursive: true})
     await fs.writeFile(path.join(appPaths.userData, 'Electris.config.dat'), Buffer.from('not compressed data'))
@@ -188,13 +188,7 @@ describe('high-score persistence', () => {
 describe('IPC sender and external-link restrictions', () => {
   it('rejects unrelated senders and only opens reviewed destinations', async () => {
     const {registerElectrisIpcHandlers} = await import('../src/main/ipc')
-    const mainWindow = {
-      minimize: vi.fn(),
-      close: vi.fn(),
-      webContents: {},
-      isDestroyed: () => false
-    } as any
-    registerElectrisIpcHandlers(mainWindow)
+    registerElectrisIpcHandlers()
 
     const minimize = handlers.get('electris:window:minimize')
     const openExternal = handlers.get('electris:external:open')
@@ -206,7 +200,7 @@ describe('IPC sender and external-link restrictions', () => {
     browserWindowFromWebContents.mockReturnValue(null)
     await expect(minimize({sender: {}, senderFrame: {}})).rejects.toThrow('Blocked request')
 
-    browserWindowFromWebContents.mockReturnValue(mainWindow)
+    browserWindowFromWebContents.mockReturnValue({} as any)
     await expect(openExternal({sender: {}, senderFrame: {}}, 'author')).resolves.toBeUndefined()
     await expect(openExternal({sender: {}, senderFrame: {}}, 'https://example.com')).rejects.toThrow('Blocked external destination')
 
