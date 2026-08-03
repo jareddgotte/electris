@@ -7,7 +7,7 @@ import { HighScoreStore } from './main/high-scores'
 let mainWindow: import('electron').BrowserWindow | null = null
 const highScoreStore = new HighScoreStore()
 
-registerElectrisIpcHandlers(highScoreStore)
+registerElectrisIpcHandlers(highScoreStore, () => mainWindow)
 
 function createWindow() {
   const preloadPath = path.join(__dirname, 'preload.js')

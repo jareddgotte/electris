@@ -9,7 +9,11 @@ generated files, supported toolchain, canonical commands, and validation expecta
 After a fresh clone or `npm ci`, `app/` only has the tracked `css`/`img` assets;
 `app/main.js` does not exist yet. Run `npm run build` once to generate it before
 `npm start`, or `npm start` will fail with `Cannot find module '.../app/main.js'`.
-Re-run `npm run build` after changing any `src/` file.
+Re-run `npm run build` after changing any `src/` file. `npm run smoke` performs its
+own clean build and launches that output in the installed Electron runtime. It uses the
+current display, or `xvfb-run` on displayless Linux; unlike the deterministic unit and
+contract tests, the smoke command requires Electron's host libraries and a display (real
+or virtual).
 
 ## Make a focused change
 

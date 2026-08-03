@@ -60,7 +60,9 @@ Run commands from the repository root:
 - `npm run lint` — lint TypeScript and TSX sources.
 - `npm run typecheck` — type-check without emitting files.
 - `npm run docs:check` — validate Markdown structure and repository-relative links.
-- `npm run smoke` — run the Electron security/contract smoke suite.
+- `npm run smoke` — clean-build and launch the actual local renderer in Electron,
+  exercising the isolated preload, native controls, fixed external mappings, and score
+  persistence. On displayless Linux it uses `xvfb-run` and fails clearly if unavailable.
 - `npm run build` — clean generated app entries, type-check, and bundle.
 - `npm start` — launch the previously built `app/main.js`; build first after a clean checkout.
 - `npm run package` — create local macOS, Linux, and Windows package artifacts, then
