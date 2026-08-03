@@ -1,4 +1,9 @@
-import { BrowserWindow, type BrowserWindowConstructorOptions } from 'electron'
+import {
+  BrowserWindow,
+  type BrowserWindowConstructorOptions,
+  type WebContents
+} from 'electron'
+import { pathToFileURL } from 'url'
 
 export function createElectrisWindowOptions(preloadPath: string): BrowserWindowConstructorOptions {
   return {
@@ -16,6 +21,22 @@ export function createElectrisWindowOptions(preloadPath: string): BrowserWindowC
   }
 }
 
-export function createElectrisWindow(preloadPath: string) {
-  return new BrowserWindow(createElectrisWindowOptions(preloadPath))
+export function installElectrisNavigationPolicy(
+    webContents: WebContents,
+    rendererPath: string) {
+  const rendererUrl = pathToFileURL(rendererPath).href
+
+  webContents.on('will-navigate', (event, navigationUrl) => {
+    if (navigationUrl !== rendererUrl) event.preventDefault()
+  })
+  webContents.on('will-redirect', (event) => {
+    event.preventDefault()
+  })
+  webContents.setWindowOpenHandler(() => ({action: 'deny'}))
+}
+
+export function createElectrisWindow(preloadPath: string, rendererPath: string) {
+  const electrisWindow = new BrowserWindow(createElectrisWindowOptions(preloadPath))
+  installElectrisNavigationPolicy(electrisWindow.webContents, rendererPath)
+  return electrisWindow
 }

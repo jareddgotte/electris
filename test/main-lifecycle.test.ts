@@ -5,13 +5,21 @@ const handleCalls: string[] = []
 const registeredHandlers = new Map<string, (...args: unknown[]) => Promise<unknown>>()
 const createdWindows: Array<{
   loadFile: ReturnType<typeof vi.fn>
-  webContents: {openDevTools: ReturnType<typeof vi.fn>}
+  webContents: {
+    openDevTools: ReturnType<typeof vi.fn>
+    on: ReturnType<typeof vi.fn>
+    setWindowOpenHandler: ReturnType<typeof vi.fn>
+  }
   on: ReturnType<typeof vi.fn>
 }> = []
 
 const BrowserWindowMock = vi.fn(function BrowserWindowMock(this: any) {
   this.loadFile = vi.fn().mockResolvedValue(undefined)
-  this.webContents = {openDevTools: vi.fn()}
+  this.webContents = {
+    openDevTools: vi.fn(),
+    on: vi.fn(),
+    setWindowOpenHandler: vi.fn()
+  }
   this.on = vi.fn((event: string, handler: () => void) => {
     if (event === 'closed') this.closedHandler = handler
   })
@@ -73,6 +81,9 @@ describe('main process lifecycle', () => {
 
     const firstWindow = createdWindows[0]
     expect(firstWindow.loadFile).toHaveBeenCalledTimes(1)
+    expect(firstWindow.webContents.on).toHaveBeenCalledWith('will-navigate', expect.any(Function))
+    expect(firstWindow.webContents.on).toHaveBeenCalledWith('will-redirect', expect.any(Function))
+    expect(firstWindow.webContents.setWindowOpenHandler).toHaveBeenCalledWith(expect.any(Function))
     expect(firstWindow.webContents.openDevTools).not.toHaveBeenCalled()
 
     const closedHandler = firstWindow.on.mock.calls.find(([event]) => event === 'closed')?.[1]

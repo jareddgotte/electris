@@ -11,8 +11,9 @@ registerElectrisIpcHandlers(highScoreStore)
 
 function createWindow() {
   const preloadPath = path.join(__dirname, 'preload.js')
-  mainWindow = createElectrisWindow(preloadPath)
-  mainWindow.loadFile(path.join(__dirname, 'renderer.html'))
+  const rendererPath = path.join(__dirname, 'renderer.html')
+  mainWindow = createElectrisWindow(preloadPath, rendererPath)
+  mainWindow.loadFile(rendererPath)
 
   if (process.env.NODE_ENV === 'development') {
     mainWindow.webContents.openDevTools()
