@@ -6,6 +6,7 @@ vi.mock('react-dom', () => ({
 import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
+import { pathToFileURL } from 'url'
 import { promisify } from 'util'
 import zlib from 'zlib'
 
@@ -23,10 +24,20 @@ const ipcHandles = vi.fn((channel: string, handler: (...args: any[]) => Promise<
 const contextBridgeExpose = vi.fn((name: string, value: unknown) => {
   exposedValues[name] = value
 })
+const webContentsListeners = new Map<string, (...args: any[]) => void>()
+let windowOpenHandler: ((details: {url: string}) => {action: string}) | undefined
 const windowController = {
   minimize: vi.fn(),
   close: vi.fn(),
-  webContents: {openDevTools: vi.fn()},
+  webContents: {
+    openDevTools: vi.fn(),
+    on: vi.fn((event: string, listener: (...args: any[]) => void) => {
+      webContentsListeners.set(event, listener)
+    }),
+    setWindowOpenHandler: vi.fn((handler: typeof windowOpenHandler) => {
+      windowOpenHandler = handler
+    })
+  },
   on: vi.fn()
 }
 const BrowserWindowMock = vi.fn(function BrowserWindowMock(this: any, options: unknown) {
@@ -85,6 +96,10 @@ beforeEach(() => {
   windowController.minimize.mockClear()
   windowController.close.mockClear()
   windowController.webContents.openDevTools.mockClear()
+  windowController.webContents.on.mockClear()
+  windowController.webContents.setWindowOpenHandler.mockClear()
+  webContentsListeners.clear()
+  windowOpenHandler = undefined
   windowController.on.mockClear()
   appPaths = {appData: '', userData: ''}
 })
@@ -111,6 +126,49 @@ describe('window security and preload contracts', () => {
         webviewTag: false
       })
     }))
+  })
+
+  it('allows only the packaged renderer URL and denies redirects and new windows', async () => {
+    const rendererPath = path.join(os.tmpdir(), 'electris', 'renderer.html')
+    const rendererUrl = pathToFileURL(rendererPath).href
+    const {createElectrisWindow} = await import('../src/main/window')
+
+    createElectrisWindow('/tmp/preload.js', rendererPath)
+
+    const navigate = webContentsListeners.get('will-navigate')
+    const redirect = webContentsListeners.get('will-redirect')
+    expect(navigate).toBeDefined()
+    expect(redirect).toBeDefined()
+    expect(windowOpenHandler).toBeDefined()
+
+    const allowedEvent = {preventDefault: vi.fn()}
+    navigate?.(allowedEvent, rendererUrl)
+    expect(allowedEvent.preventDefault).not.toHaveBeenCalled()
+
+    for (const deniedUrl of [
+      'https://www.jaredgotte.com/',
+      'http://www.jaredgotte.com/',
+      pathToFileURL(path.join(os.tmpdir(), 'electris', 'other.html')).href,
+      'javascript:alert(1)',
+      'data:text/html,unexpected',
+      'not a valid URL'
+    ]) {
+      const deniedEvent = {preventDefault: vi.fn()}
+      navigate?.(deniedEvent, deniedUrl)
+      expect(deniedEvent.preventDefault).toHaveBeenCalledOnce()
+    }
+
+    const redirectEvent = {preventDefault: vi.fn()}
+    redirect?.(redirectEvent, rendererUrl)
+    expect(redirectEvent.preventDefault).toHaveBeenCalledOnce()
+
+    for (const popupUrl of [
+      rendererUrl,
+      'https://www.jaredgotte.com/',
+      'https://opensource.org/licenses/ISC'
+    ]) {
+      expect(windowOpenHandler?.({url: popupUrl})).toEqual({action: 'deny'})
+    }
   })
 
   it('exposes only the typed preload bridge channels', async () => {
@@ -245,9 +303,13 @@ describe('IPC sender and external-link restrictions', () => {
 
     browserWindowFromWebContents.mockReturnValue({} as any)
     await expect(openExternal({sender: {}, senderFrame: {}}, 'author')).resolves.toBeUndefined()
-    await expect(openExternal({sender: {}, senderFrame: {}}, 'https://example.com')).rejects.toThrow('Blocked external destination')
+    await expect(openExternal({sender: {}, senderFrame: {}}, 'license')).resolves.toBeUndefined()
+    await expect(openExternal({sender: {}, senderFrame: {}}, 'unknown')).rejects.toThrow('Blocked external destination')
+    await expect(openExternal({sender: {}, senderFrame: {}}, 'http://www.jaredgotte.com/')).rejects.toThrow('Blocked external destination')
 
-    expect(shellOpenExternal).toHaveBeenCalledWith('https://www.jaredgotte.com/')
+    expect(shellOpenExternal).toHaveBeenCalledTimes(2)
+    expect(shellOpenExternal).toHaveBeenNthCalledWith(1, 'https://www.jaredgotte.com/')
+    expect(shellOpenExternal).toHaveBeenNthCalledWith(2, 'https://opensource.org/licenses/ISC')
     await expect(loadScores({sender: {}, senderFrame: {}})).resolves.toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
   })
 })
@@ -294,12 +356,22 @@ describe('renderer bootstrap', () => {
     })
 
     let clickHandler: ((event: {target: unknown; preventDefault(): void}) => void) | undefined
+    class ElementMock {
+      closest() {
+        return {
+          getAttribute: () => 'author'
+        }
+      }
+    }
+    ;(globalThis as any).Element = ElementMock
     ;(globalThis as any).document = {
       addEventListener: vi.fn((_name: string, handler: typeof clickHandler) => {
         clickHandler = handler
       })
     }
+    const rendererUrl = 'file:///opt/electris/app/renderer.html'
     ;(globalThis as any).window = {
+      location: {href: rendererUrl},
       electris: {
         highScores: {
           load: vi.fn().mockResolvedValue([10, 9, 8, 7, 6, 5, 4, 3, 2, 1]),
@@ -333,5 +405,11 @@ describe('renderer bootstrap', () => {
     ])
 
     expect(clickHandler).toBeDefined()
+    const preventDefault = vi.fn()
+    clickHandler?.({target: new ElementMock(), preventDefault})
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect((window as any).electris.openExternal).toHaveBeenCalledWith('author')
+    expect((window as any).location.href).toBe(rendererUrl)
+    delete (globalThis as any).Element
   })
 })
