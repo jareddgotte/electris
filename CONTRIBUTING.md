@@ -4,6 +4,13 @@ Thank you for contributing. Read [`AGENTS.md`](AGENTS.md) before changing the
 repository; it is the authoritative source for the architecture, invariants,
 generated files, supported toolchain, canonical commands, and validation expectations.
 
+## Getting started
+
+After a fresh clone or `npm ci`, `app/` only has the tracked `css`/`img` assets;
+`app/main.js` does not exist yet. Run `npm run build` once to generate it before
+`npm start`, or `npm start` will fail with `Cannot find module '.../app/main.js'`.
+Re-run `npm run build` after changing any `src/` file.
+
 ## Make a focused change
 
 - Keep each pull request limited to one rationale or issue.
