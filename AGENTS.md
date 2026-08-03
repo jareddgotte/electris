@@ -46,7 +46,8 @@ copy its guidance, or import commits by assumption.
 ## Generated files
 
 `npm run build` generates `app/main.js`, `app/preload.js`, `app/renderer.js`,
-`app/renderer.html`, and source maps. They are ignored and must not be committed.
+`app/renderer.js.LICENSE.txt`, `app/renderer.html`, and source maps. They are
+ignored and must not be committed.
 The assets under `app/css/` and `app/img/` are source files and remain tracked.
 Packaging writes ignored artifacts under `dist/`.
 

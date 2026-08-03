@@ -4,7 +4,7 @@
   "description": "js-tetris on Electron",
   "main": "app/main.js",
   "scripts": {
-    "clean": "rimraf --glob \"app/*.js\" \"app/*.js.map\" \"app/*.html\" \"app/*.d.ts\"",
+    "clean": "rimraf --glob \"app/*.js\" \"app/*.js.map\" \"app/*.html\" \"app/*.d.ts\" \"app/*.LICENSE.txt\"",
     "lint": "eslint \"{src,test}/**/*.{ts,tsx}\"",
     "docs:check": "remark . --frail",
     "test": "vitest run",
