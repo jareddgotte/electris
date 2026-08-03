@@ -26,6 +26,10 @@ function runCoordinator() {
         'the real game did not initialize its canvas')
     assert(first.report.startup.requireType === 'undefined' && first.report.startup.processType === 'undefined',
         'Node globals leaked into the isolated renderer')
+    assert(first.report.paths.userData.startsWith(temporaryRoot) &&
+        first.report.paths.appData.startsWith(temporaryRoot) &&
+        first.report.paths.userData !== first.report.paths.appData,
+        'the smoke harness did not isolate both Electron persistence roots')
     assert(JSON.stringify(first.report.startup.bridgeKeys) === JSON.stringify(['highScores', 'openExternal', 'window']),
         'the preload exposed an unexpected top-level bridge surface')
     assert(JSON.stringify(first.report.loadedScores) === JSON.stringify(expectedScores),
@@ -106,6 +110,11 @@ async function runElectronHarness() {
   }
 
   app.setPath('userData', userDataPath)
+  app.setPath('appData', path.join(path.dirname(userDataPath), 'app-data'))
+  report.paths = {
+    appData: app.getPath('appData'),
+    userData: app.getPath('userData')
+  }
   shell.openExternal = async (url) => {
     openedUrls.push(url)
   }
