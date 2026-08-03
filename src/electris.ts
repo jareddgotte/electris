@@ -70,5 +70,8 @@ export function normalizeHighScores(value: unknown): HighScoreList {
     return [...DEFAULT_HIGH_SCORES] as HighScoreList
   }
 
-  return normalized as HighScoreList
+  return normalized
+      .filter((entry): entry is number => entry !== null)
+      .slice()
+      .sort((left, right) => right - left) as HighScoreList
 }

@@ -288,12 +288,12 @@ describe('runtime dependency seams', () => {
     expect(timer.callbacks).toHaveLength(1)
   })
 
-  it('stores inserted high scores as finite numbers in memory', () => {
+  it('sorts valid but unsorted high scores before inserting a new one', () => {
     const {game} = createGame()
-    game.setHighScores([100, 90, 80, 70, 60, 50, 40, 30, 20, 10])
-    game.score = 12.5
+    game.setHighScores([0, 0, 0, 0, 0, 0, 0, 0, 0, 100])
+    game.score = 50
 
-    expect(game.checkHighScore()).toEqual([100, 90, 80, 70, 60, 50, 40, 30, 20, 12.5])
+    expect(game.checkHighScore()).toEqual([100, 50, 0, 0, 0, 0, 0, 0, 0, 0])
   })
 
   it('retains the standard board dimensions', () => {

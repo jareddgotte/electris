@@ -16,7 +16,13 @@ function getHighScorePath() {
 async function readHighScoreFile(filePath: string) {
   const compressed = await fs.readFile(filePath)
   const decoded = await inflate(compressed)
-  return normalizeHighScores(JSON.parse(decoded.toString('utf8')))
+  const parsed: unknown = JSON.parse(decoded.toString('utf8'))
+  const legacyShape = parsed !== null && typeof parsed === 'object' &&
+      'highScores' in parsed
+    ? (parsed as {highScores: unknown}).highScores
+    : parsed
+
+  return normalizeHighScores(legacyShape)
 }
 
 async function writeHighScoreFile(filePath: string, highScores: HighScoreList) {
@@ -31,6 +37,8 @@ async function writeHighScoreFile(filePath: string, highScores: HighScoreList) {
 }
 
 export class HighScoreStore {
+  private saveQueue: Promise<void> = Promise.resolve()
+
   async load(): Promise<HighScoreList> {
     try {
       return await readHighScoreFile(getHighScorePath())
@@ -40,6 +48,9 @@ export class HighScoreStore {
   }
 
   async save(highScores: HighScoreList): Promise<void> {
-    await writeHighScoreFile(getHighScorePath(), normalizeHighScores(highScores))
+    const nextWrite = this.saveQueue.then(() =>
+      writeHighScoreFile(getHighScorePath(), normalizeHighScores(highScores)))
+    this.saveQueue = nextWrite.then(() => undefined, () => undefined)
+    await nextWrite
   }
 }

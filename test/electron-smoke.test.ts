@@ -6,6 +6,7 @@ import { promisify } from 'util'
 import zlib from 'zlib'
 
 const deflate = promisify(zlib.deflate)
+const inflate = promisify(zlib.inflate)
 
 const handlers = new Map<string, (...args: any[]) => Promise<unknown>>()
 const exposedValues: Record<string, unknown> = {}
@@ -148,7 +149,7 @@ describe('window security and preload contracts', () => {
 })
 
 describe('high-score persistence', () => {
-  it('loads and saves compressed scores in the current userData path', async () => {
+  it('loads the legacy object-shaped file at the current userData path', async () => {
     const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electris-smoke-'))
     appPaths = {
       appData: path.join(tmpRoot, 'app-data'),
@@ -157,16 +158,54 @@ describe('high-score persistence', () => {
     await fs.mkdir(appPaths.userData, {recursive: true})
     await fs.writeFile(
         path.join(appPaths.userData, 'Electris.config.dat'),
-        await deflate(Buffer.from(JSON.stringify(['9', '8', 7, 6, 5, 4, 3, 2, 1, 0]))))
+        await deflate(Buffer.from(JSON.stringify({highScores: ['9', '8', 7, 6, 5, 4, 3, 2, 1, 0]}))))
 
     const {HighScoreStore} = await import('../src/main/high-scores')
     const store = new HighScoreStore()
     const scores = await store.load()
 
     expect(scores).toEqual([9, 8, 7, 6, 5, 4, 3, 2, 1, 0])
-    await store.save([10, 9, 8, 7, 6, 5, 4, 3, 2, 1])
+  })
+
+  it('serializes overlapping saves and preserves the last write', async () => {
+    const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electris-smoke-'))
+    appPaths = {
+      appData: path.join(tmpRoot, 'app-data'),
+      userData: path.join(tmpRoot, 'user-data')
+    }
+
+    await fs.mkdir(appPaths.userData, {recursive: true})
+    const {HighScoreStore} = await import('../src/main/high-scores')
+    const store = new HighScoreStore()
+    const writeFileCalls: string[] = []
+    let releaseFirstWrite: (() => void) | null = null
+    const originalWriteFile = fs.writeFile.bind(fs) as typeof fs.writeFile
+    const writeFileSpy = vi.spyOn(fs, 'writeFile').mockImplementation(async (...args: Parameters<typeof fs.writeFile>) => {
+      writeFileCalls.push(String(args[0]))
+      if (writeFileCalls.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirstWrite = resolve
+        })
+      }
+      return originalWriteFile(...args)
+    })
+
+    const firstSave = store.save([10, 9, 8, 7, 6, 5, 4, 3, 2, 1])
+    for (let attempt = 0; attempt < 100 && writeFileCalls.length === 0; attempt++) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 10))
+    }
+    expect(writeFileCalls).toHaveLength(1)
+
+    const secondSave = store.save([20, 19, 18, 17, 16, 15, 14, 13, 12, 11])
+    const releaseWrite = releaseFirstWrite as (() => void) | null
+    if (typeof releaseWrite === 'function') releaseWrite()
+    await Promise.all([firstSave, secondSave])
+
+    writeFileSpy.mockRestore()
+
     const written = await fs.readFile(path.join(appPaths.userData, 'Electris.config.dat'))
-    expect(written.length).toBeGreaterThan(0)
+    const decoded = JSON.parse((await inflate(written)).toString('utf8'))
+    expect(decoded).toEqual([20, 19, 18, 17, 16, 15, 14, 13, 12, 11])
   })
 
   it('falls back to the zero list when data is malformed', async () => {
