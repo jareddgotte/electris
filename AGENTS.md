@@ -16,7 +16,7 @@ This is the authoritative repository guide for contributors and coding agents. S
 - `package.json`: canonical scripts and supported tool engines.
 - `.github/pull_request_template.md`: required PR description structure.
 - `.github/workflows/pull-request.yml`: least-privilege pull-request CI (lint,
-  typecheck, smoke, tests, documentation check, build).
+  typecheck, tests, smoke, documentation check, build).
 - `test/fixtures/game.ts`: reusable fixtures for characterizing production piece and
   board behavior; provides deterministic runtime dependencies and board fixtures.
 
