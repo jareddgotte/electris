@@ -42,6 +42,25 @@ jobs:
       - name: Run deterministic tests
         run: npm test
 
+      - name: Allow the smoke Electron binary to use unprivileged user namespaces
+        # ubuntu-latest restricts unprivileged user namespace creation via AppArmor by
+        # default, which aborts Electron's own chrome-sandbox before it can enforce
+        # anything, independent of chrome-sandbox's SUID bit. This grants that one
+        # binary path the same "userns" permission actions/runner-images documents for
+        # Chromium-based tools, without touching, chmodding, or disabling
+        # chrome-sandbox itself, so the real sandbox still initializes and enforces.
+        run: |
+          cat <<EOF | sudo tee /etc/apparmor.d/electris-electron-smoke
+          abi <abi/4.0>,
+          include <tunables/global>
+
+          profile electris-electron-smoke ${{ github.workspace }}/node_modules/electron/dist/electron flags=(unconfined) {
+            userns,
+            include if exists <local/electris-electron-smoke>
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/electris-electron-smoke
+
       - name: Run Electron security smoke suite
         run: npm run smoke
 
