@@ -66,13 +66,36 @@ jobs:
                generated app bundles out of version control.
 
             2. Handle review threads before new findings. For each thread this bot
-               opened: if it is genuinely addressed, reply with what changed and
-               resolve it through the GraphQL `resolveReviewThread` mutation; if
-               someone replied with a disagreement or question, answer on-thread
-               and resolve only when the substance is settled; if it is still
-               unaddressed, leave it open and do not repost the same finding as a
-               new comment. Never resolve a thread a human opened. Never treat
-               `isOutdated` or a reply as proof the issue is fixed.
+               opened: if it is genuinely addressed, reply with what changed --
+               never write "Resolving", "Resolved", or any other word claiming
+               the thread's state in that reply, since a comment is not a state
+               transition and resolution is proven only by the verified
+               procedure below. If someone replied with a disagreement or
+               question, answer on-thread, engage with the substance, and only
+               route it through the same verified procedure once the substance
+               is settled; if it is not settled, explain why and leave it open.
+               If a thread is still unaddressed, leave it open and do not repost
+               the same finding as a new comment. Never resolve a thread a human
+               opened, and never resolve a thread merely because it was replied
+               to or is disputed. Never treat `isOutdated` or a reply as proof
+               the issue is fixed.
+
+               Verified resolution procedure, once a bot-opened thread's
+               substance is genuinely settled: invoke the GraphQL
+               `resolveReviewThread` mutation as its own standalone tool call --
+               never joined to the reply or to any other command. Inspect the
+               response and require `data.resolveReviewThread.thread.isResolved
+               == true`. If the call is denied, errors, or returns
+               `isResolved: false`, retry it exactly once, again as a standalone
+               call. Whether or not the mutation reported success, re-run the
+               read-only thread query from step 1 and require actual
+               `isResolved == true` for that thread before treating it as
+               resolved or continuing. A successful-looking mutation response is
+               not sufficient by itself; only this follow-up query is. If the
+               mutation and its one retry both fail, or the follow-up query
+               still shows `isResolved: false`, leave the thread open, do not
+               claim resolution anywhere, and state the exact failure (the
+               error, the denial, or the false result) in the final summary.
 
             3. Dispatch exactly two synchronous general-purpose review agents in
                a single message so they run in parallel. Give each the same

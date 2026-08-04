@@ -88,10 +88,13 @@ description conventions in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 - Automated review workflows can fail silently; confirm that a review comment or
   resolved thread actually appeared instead of trusting a green check.
-- The reviewer workflow refuses to run when the PR changes a workflow file; see
-  the inline comments in [`.github/workflows/claude-code-review.yml`](.github/workflows/claude-code-review.yml)
-  and [`.github/workflows/claude.yml`](.github/workflows/claude.yml) for the exact
-  guard and publication limits.
+- `anthropics/claude-code-action` itself validates that a PR's workflow file is
+  byte-identical to the default branch's; when it is not, the action skips Claude
+  execution even though the job still reports success. A PR that changes
+  `.github/workflows/claude-code-review.yml` or `.github/workflows/claude.yml`
+  therefore requires inspecting the run logs to confirm Claude actually executed,
+  plus manual review and post-merge verification rather than trusting the check
+  alone.
 
 ## Maintaining this file
 
