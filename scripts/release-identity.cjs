@@ -6,7 +6,7 @@ const {spawnSync} = require('child_process')
 const {root} = require('./package-config.cjs')
 const {releaseNotesPath} = require('./release-config.cjs')
 
-const strictTagPattern = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[a-zA-Z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[a-zA-Z-][0-9A-Za-z-]*))*))?$/
+const strictTagPattern = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9A-Za-z-]*))*))?$/
 const archivedTags = new Set(['v0.1.0', 'v0.1.1', 'v0.1.2'])
 
 function parseReleaseTag(tag) {

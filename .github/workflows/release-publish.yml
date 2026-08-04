@@ -33,7 +33,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           CONFIRMATION: ${{ inputs.confirmation }}
-        run: node -e "if (!/^v(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|[A-Za-z-][0-9A-Za-z-]*))*))?$/.test(process.env.RELEASE_TAG) || process.env.CONFIRMATION !== 'publish ' + process.env.RELEASE_TAG) throw new Error('Selector and confirmation must exactly identify one strict SemVer tag')"
+        run: node -e "if (!/^v(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*))*))?$/.test(process.env.RELEASE_TAG) || process.env.CONFIRMATION !== 'publish ' + process.env.RELEASE_TAG) throw new Error('Selector and confirmation must exactly identify one strict SemVer tag')"
 
       - name: Check out the selected existing tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

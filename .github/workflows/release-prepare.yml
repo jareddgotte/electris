@@ -32,7 +32,7 @@ jobs:
       - name: Reject non-tag selectors before running selected repository code
         env:
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-        run: node -e "if (!/^v(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|[A-Za-z-][0-9A-Za-z-]*))*))?$/.test(process.env.RELEASE_TAG)) throw new Error('Selector must be a strict SemVer tag')"
+        run: node -e "if (!/^v(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*))*))?$/.test(process.env.RELEASE_TAG)) throw new Error('Selector must be a strict SemVer tag')"
 
       - name: Check out the selected existing tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -123,7 +123,7 @@ jobs:
           - runner: windows-latest
             platform: win32
             arch: x64
-          - runner: macos-15-arm64
+          - runner: macos-15
             platform: darwin
             arch: arm64
           - runner: macos-15-intel

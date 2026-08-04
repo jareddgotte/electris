@@ -152,6 +152,7 @@ describe('release identity contract', () => {
   it('accepts stable and approved prerelease strict SemVer tags', () => {
     expect(parseReleaseTag('v0.2.0')).toMatchObject({version: '0.2.0', prerelease: null})
     expect(parseReleaseTag(tag)).toMatchObject({version, prerelease: 'rc.1'})
+    expect(parseReleaseTag('v1.0.0-2be')).toMatchObject({version: '1.0.0-2be', prerelease: '2be'})
     expect(nativeBuildVersion(version)).toBe('0.2.0')
   })
 
@@ -312,6 +313,8 @@ describe('release workflow security contract', () => {
     expect(workflow.match(/contents: write/g)).toHaveLength(1)
     expect(workflow).not.toContain('id-token: write')
     expect(workflow).toContain('cancel-in-progress: false')
+    expect(workflow).toContain('runner: macos-15\n            platform: darwin\n            arch: arm64')
+    expect(workflow).toContain('runner: macos-15-intel\n            platform: darwin\n            arch: x64')
   })
 
   it('makes publication dispatch-only, environment-gated, and rebuild-free', () => {
