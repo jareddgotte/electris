@@ -42,7 +42,7 @@ Use the landed packaging commands and the reviewed target allowlist in `scripts/
 Safe evidence expectations:
 
 - `package:verify` confirms artifact identity, runtime version, allowlisted payload, and forbidden-path absence.
-- `package:smoke` records target-executed startup, isolated preload, CSP/navigation, window controls, score restart, and score persistence evidence.
+- `package:smoke` records target-executed startup, isolated preload, CSP/navigation, window controls, and score restart evidence.
 - It does **not** cover historical-score migration or corrupt-score fallback; those remain blocked until a future evidence path is added.
 - Buildable-only or cross-built artifacts stay unverified until `package:smoke` runs on that exact target OS/architecture.
 
@@ -78,7 +78,7 @@ Inspect the artifact for:
 
 ## 8. Publish authorization
 
-Only after all applicable evidence exists may the captain separately authorize publication.
+Only after all applicable evidence exists may the designated release authorization owner separately authorize publication.
 
 - Verify the draft release, upload list, and notes manually.
 - Publish only after explicit publish authorization.
