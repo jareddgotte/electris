@@ -6,9 +6,9 @@ This checklist is manual. Do not publish anything until every step is complete a
 
 ## 0. Release authorization
 
-- **Prepare authorization:** captain approves creating or updating a draft release candidate.
-- **Publish authorization:** captain separately approves publishing the final release.
-- If either authorization is missing, stop here.
+- **Prepare authorization:** a designated release authorization owner approves creating or updating a draft release candidate.
+- **Publish authorization:** that owner separately approves publishing the final release.
+- If the owner is not designated, or either authorization is missing, stop here.
 
 ## 1. Baseline evidence
 

@@ -88,8 +88,9 @@ characterizing production piece or board behavior. Packaging changes additionall
 require `package:host`, `package:verify`, and `package:smoke` on a capable matching
 host. For documentation-only changes, verify commands and links against the
 authoritative files and run code validation when the documentation depends on build
-behavior. Release-readiness guidance lives in `RELEASING.md`; do not duplicate its
-command list elsewhere.
+behavior. Release-readiness guidance lives in `RELEASING.md`; keep the command list
+synchronized with those package commands rather than copying a second, divergent
+variant.
 
 Local packaging requires `npm ci` under the declared Node/npm versions and access to
 Electron's target runtime download (or its existing local cache). Artifact smoke also
