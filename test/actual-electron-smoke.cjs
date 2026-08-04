@@ -176,6 +176,7 @@ async function runElectronHarness() {
           if (!window.isDestroyed()) throw error
         })
     await waitFor(() => window.isDestroyed())
+    app.exit(0)
   } catch (error) {
     fail(error)
   }
