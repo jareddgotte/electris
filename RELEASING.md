@@ -58,7 +58,7 @@ Inspect the artifact for:
 
 ## 5. Release asset handling
 
-- Generate a checksum file for each uploaded asset with a portable explicit command such as `sha256sum <artifact> > <artifact>.sha256` before publication.
+- Generate a checksum file for each uploaded asset with an explicit command appropriate to the release host — for example `sha256sum <artifact> > <artifact>.sha256` on Linux, `shasum -a 256 <artifact> > <artifact>.sha256` on macOS, or `Get-FileHash <artifact> -Algorithm SHA256` on Windows — before publication.
 - Draft release assets, uploaded archives, and checksums are separate evidence.
 - Checksums help integrity checking only; they do not prove origin or provenance.
 - Do not claim PR CI built an uploaded asset.
