@@ -43,6 +43,7 @@ Safe evidence expectations:
 
 - `package:verify` confirms artifact identity, runtime version, allowlisted payload, and forbidden-path absence.
 - `package:smoke` records target-executed startup, isolated preload, CSP/navigation, window controls, score restart, and score persistence evidence.
+- It does **not** cover historical-score migration or corrupt-score fallback; those remain blocked until a future evidence path is added.
 - Buildable-only or cross-built artifacts stay unverified until `package:smoke` runs on that exact target OS/architecture.
 
 ## 4. Package content review
