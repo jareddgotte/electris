@@ -12,8 +12,10 @@
     "typecheck": "tsc --noEmit",
     "build": "npm run clean && npm run typecheck && webpack --config webpack.config.js",
     "start": "electron ./app/main.js",
-    "package": "electron-packager . --out=dist/ --platform=darwin --ignore=\"/\\.\\w*|.*~|/src/*\" --asar && electron-packager . --out=dist/ --platform=linux --ignore=\"/\\.\\w*|.*~|/src/*\" --asar && electron-packager . --out=dist/ --platform=win32 --ignore=\"/\\.\\w*|.*~|/src/*\" --asar",
-    "postpackage": "zip --symlinks -r dist/electris-darwin-x64.zip dist/electris-darwin-x64/ && zip -r dist/electris-linux-x64 dist/electris-linux-x64/ && zip -r dist/electris-win32-x64 dist/electris-win32-x64/"
+    "package:host": "node scripts/package.cjs --host",
+    "package:target": "node scripts/package.cjs",
+    "package:verify": "node scripts/package-verify.cjs",
+    "package:smoke": "node scripts/package-smoke.cjs"
   },
   "engines": {
     "node": ">=22.13 <23",
@@ -27,11 +29,12 @@
   "author": "Jared Gotte",
   "license": "ISC",
   "devDependencies": {
+    "@electron/asar": "4.0.1",
+    "@electron/packager": "20.1.1",
     "@types/node": "22.20.1",
     "@types/react": "16.14.70",
     "@types/react-dom": "16.9.25",
     "electron": "43.2.0",
-    "electron-packager": "12.1.1",
     "eslint": "10.8.0",
     "html-webpack-plugin": "5.6.8",
     "remark-cli": "12.0.1",

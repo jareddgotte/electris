@@ -14,6 +14,8 @@ This is the authoritative repository guide for contributors and coding agents. S
 - `app/css/` and `app/img/`: tracked renderer assets.
 - `webpack.config.js`: main, preload, and renderer production bundles.
 - `package.json`: canonical scripts and supported tool engines.
+- `scripts/package-*.cjs`: local package target policy, build orchestration,
+  verification, and bounded artifact smoke harness.
 - `.github/pull_request_template.md`: required PR description structure.
 - `.github/workflows/pull-request.yml`: least-privilege pull-request CI (lint,
   typecheck, tests, smoke, documentation check, build).
@@ -49,7 +51,8 @@ copy its guidance, or import commits by assumption.
 `app/renderer.js.LICENSE.txt`, `app/renderer.html`, and source maps. They are
 ignored and must not be committed.
 The assets under `app/css/` and `app/img/` are source files and remain tracked.
-Packaging writes ignored artifacts under `dist/`.
+Packaging writes ignored, unsigned directory artifacts and temporary work under
+`dist/`; failed package attempts remove their target and partial work.
 
 ## Canonical commands
 
@@ -65,21 +68,44 @@ Run commands from the repository root:
   persistence. On displayless Linux it uses `xvfb-run` and fails clearly if unavailable.
 - `npm run build` — clean generated app entries, type-check, and bundle.
 - `npm start` — launch the previously built `app/main.js`; build first after a clean checkout.
-- `npm run package` — create local macOS, Linux, and Windows package artifacts, then
-  ZIP them through the npm `postpackage` lifecycle.
+- `npm run package:host` — clean-build, stage the allowlisted production payload,
+  and create only `dist/electris-v<version>-<host-platform>-<host-arch>/`.
+- `npm run package:target -- --platform=<platform> --arch=<arch>` — clean-build one
+  reviewed explicit target; both arguments are mandatory.
+- `npm run package:verify -- dist/electris-v<version>-<platform>-<arch>` — inspect
+  package identity, Electron version, executable platform/architecture, launch record,
+  required payload, and forbidden content.
+- `npm run package:smoke -- dist/electris-v<version>-<platform>-<arch>` — on a
+  matching target host, bounded-launch the package twice and record passing startup,
+  isolated preload/CSP/navigation, controls, and score-restart evidence.
 
 For source or build configuration changes, run tests, lint, typecheck, smoke,
 documentation checks, and build. Add behavioral tests for changed behavior rather
 than treating manual checks as a substitute; reuse `test/fixtures/game.ts` when
-characterizing production piece or board behavior. For documentation-only changes,
-verify commands and links against the authoritative files and run code validation
-when the documentation depends on build behavior.
+characterizing production piece or board behavior. Packaging changes additionally
+require `package:host`, `package:verify`, and `package:smoke` on a capable matching
+host. For documentation-only changes, verify commands and links against the
+authoritative files and run code validation when the documentation depends on build
+behavior.
 
-Run `npm run package` only when packaging is affected or explicitly requested: it is
-slower, may download platform runtimes, requires a local `zip` executable, and
-creates all supported platform outputs. It does not publish, release, or sign them.
-Use `npm start` for a manual smoke check when UI or Electron integration changes and
-the environment can display the application.
+Local packaging requires `npm ci` under the declared Node/npm versions and access to
+Electron's target runtime download (or its existing local cache). Artifact smoke also
+requires the target OS/architecture, Electron's host libraries, and a display; on
+headless Linux the harness uses `xvfb-run`. If that host cannot display or start
+Electron, copy the unchanged directory to the same `dist/` path in a checkout on a
+capable matching host, run `npm ci`, then run the exact `package:verify`,
+`package:smoke`, and `package:verify` commands above. Never substitute a direct or
+unbounded application launch for the harness.
+
+The reviewed locally buildable target pairs in `scripts/package-config.cjs` are
+macOS (`darwin`) arm64/x64, Linux arm64/x64, and Windows (`win32`)
+arm64/ia32/x64. A cross-built artifact is only locally inspected and remains recorded
+as not launched. A target is locally tested only after `package:smoke` passes on that
+exact OS/architecture and updates its package record. There are no supported release
+targets or current supported binaries. These commands create unsigned, unpacked local
+directories only: they do not ZIP, publish, upload, tag, release, sign, or notarize.
+The application payload and source-map policy are the allowlist documented beside the
+configuration in `scripts/package-config.cjs`.
 
 ## Change discipline
 
