@@ -44,8 +44,8 @@ Safe evidence expectations:
 
 - `package:verify` confirms artifact identity, runtime version, allowlisted payload, and forbidden-path absence.
 - `package:smoke` records target-executed startup, isolated preload, CSP/navigation, window controls, and score restart evidence.
-- It does **not** cover historical-score migration or corrupt-score fallback; those remain blocked until a future evidence path is added.
-- Buildable-only or cross-built artifacts stay unverified until `package:smoke` runs on that exact target OS/architecture.
+- `package:smoke` does not exercise historical-score migration or corrupt-score fallback directly; that behavior is already covered by `npm test` (`test/high-scores.test.ts`), which Section 2 requires as part of clean local validation.
+- Buildable-only or cross-built artifacts remain unlaunched — not locally tested per AGENTS.md — until `package:smoke` runs on that exact target OS/architecture; `package:verify` already establishes artifact identity and payload verification independent of launch status.
 
 ## 4. Package content review
 
