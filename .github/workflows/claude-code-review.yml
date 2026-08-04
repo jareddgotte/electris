@@ -60,10 +60,10 @@ jobs:
             1. Fetch the diff with `gh pr diff`, read AGENTS.md, and list the
                pull request's existing review threads. Treat AGENTS.md as
                binding: it documents this repository's Electron boundary, the
-               main-process and renderer responsibilities, the absence of a
-               preload boundary yet, the current gameplay and high-score
-               invariants, the canonical npm workflow, and the requirement to keep
-               generated app bundles out of version control.
+               main-process and renderer responsibilities, the current
+               architecture guidance in AGENTS.md, the current gameplay and
+               high-score invariants, the canonical npm workflow, and the
+               requirement to keep generated app bundles out of version control.
 
             2. Handle review threads before new findings. For each thread this bot
                opened: if it is genuinely addressed, reply with what changed --
