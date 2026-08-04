@@ -8,14 +8,14 @@ Electris currently has no supported current release.
 - **Source development:** supported only for contributors working from the repository.
 - **Future release support:** blocked until a separately authorized release proposal records the required evidence and decisions.
 
-## Supported vs unverified targets
+## Supported vs unlaunched targets
 
 A platform/architecture may be described as supported only after:
 
 1. the target is listed in `scripts/package-config.cjs` as a reviewed packaging target; and
 2. `npm run package:smoke -- dist/electris-v<version>-<platform>-<arch>` has passed on that exact target OS/architecture.
 
-Anything else is either buildable-only, cross-built, or unverified and must not be described as supported.
+Anything else is either buildable-only, cross-built, or unlaunched and must not be described as supported.
 
 ## Support window
 
