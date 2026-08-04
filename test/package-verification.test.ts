@@ -21,8 +21,9 @@ const { createPackage, readTarget } = require('../scripts/package.cjs') as {
   ) => Promise<string>
   readTarget: (args: string[]) => {platform: string, arch: string} | null
 }
-const { expectedPackagedPackage, verifyArtifact } = require(
+const { binaryIdentity, expectedPackagedPackage, verifyArtifact } = require(
     '../scripts/package-verify.cjs') as {
+      binaryIdentity: (executablePath: string) => {platform: string, arch?: string}
       expectedPackagedPackage: (sourcePackage?: ProjectPackage) => Record<string, unknown>
       verifyArtifact: (
         artifact: string,
@@ -59,6 +60,25 @@ function writeLinuxExecutable(filePath: string, machine = 62) {
   const header = Buffer.alloc(64)
   Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1]).copy(header)
   header.writeUInt16LE(machine, 18)
+  writeFile(filePath, header)
+  fs.chmodSync(filePath, 0o755)
+}
+
+function writePeExecutable(filePath: string, machine: number) {
+  const peOffset = 0x40
+  const header = Buffer.alloc(peOffset + 6)
+  header.write('MZ', 0, 'ascii')
+  header.writeUInt32LE(peOffset, 0x3c)
+  header.write('PE\0\0', peOffset, 'ascii')
+  header.writeUInt16LE(machine, peOffset + 4)
+  writeFile(filePath, header)
+  fs.chmodSync(filePath, 0o755)
+}
+
+function writeMachOExecutable(filePath: string, cpuType: number) {
+  const header = Buffer.alloc(8)
+  header.writeUInt32BE(0xcffaedfe, 0)
+  header.writeUInt32LE(cpuType, 4)
   writeFile(filePath, header)
   fs.chmodSync(filePath, 0o755)
 }
@@ -119,12 +139,19 @@ describe('package verification', () => {
       .toThrow(/missing=\[preload\.js\]/)
   })
 
-  it('fails closed when source, test, development, cache, or secret content appears', async () => {
+  it('fails closed when the packaged app.asar contains unlisted content', async () => {
     writeFile(path.join(stagePath, 'src', '.env'), 'SECRET=not-allowed')
     await asar.createPackage(stagePath, asarPath)
 
     expect(() => verifyArtifact(artifactPath, {sourceRoot: temporaryRoot, sourcePackage}))
       .toThrow(/forbidden=\[src, src\/\.env\]/)
+  })
+
+  it('fails closed when source, test, development, cache, or secret content appears outside app.asar', () => {
+    writeFile(path.join(artifactPath, '.env'), 'SECRET=not-allowed')
+
+    expect(() => verifyArtifact(artifactPath, {sourceRoot: temporaryRoot, sourcePackage}))
+      .toThrow(/forbidden source, test, development, cache, or secret-like path is present: \.env/)
   })
 
   it('rejects identity and version mismatches', () => {
@@ -148,6 +175,20 @@ describe('package verification', () => {
 
     expect(() => verifyArtifact(artifactPath, {sourceRoot: temporaryRoot, sourcePackage}))
       .toThrow(/executable is linux\/arm64, record says linux\/x64/)
+  })
+
+  it('identifies a Windows PE x64 executable', () => {
+    const filePath = path.join(temporaryRoot, 'electris.exe')
+    writePeExecutable(filePath, 0x8664)
+
+    expect(binaryIdentity(filePath)).toEqual({platform: 'win32', arch: 'x64'})
+  })
+
+  it('identifies a macOS Mach-O arm64 executable', () => {
+    const filePath = path.join(temporaryRoot, 'electris-macho')
+    writeMachOExecutable(filePath, 0x0100000c)
+
+    expect(binaryIdentity(filePath)).toEqual({platform: 'darwin', arch: 'arm64'})
   })
 
   it('requires both explicit target arguments outside host mode', () => {
