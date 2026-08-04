@@ -18,15 +18,17 @@ vi.mock('electron', () => ({
 }))
 
 async function useDifferentPaths() {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'electris-scores-'))
-  temporaryRoots.push(root)
+  const appData = await fs.mkdtemp(path.join(os.tmpdir(), 'electris-scores-'))
+  temporaryRoots.push(appData)
+  // A source run passes app/main.js to Electron, so the default app identity
+  // puts userData under <appData>/Electron while the legacy store used electris.
   appPaths = {
-    appData: path.join(root, 'app-data'),
-    userData: path.join(root, 'user-data')
+    appData,
+    userData: path.join(appData, 'Electron')
   }
   return {
     authoritative: path.join(appPaths.userData, 'Electris.config.dat'),
-    legacy: path.join(appPaths.appData, 'electris', 'Electris.config.dat')
+    legacy: path.join(appData, 'electris', 'Electris.config.dat')
   }
 }
 
