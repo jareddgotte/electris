@@ -14,6 +14,12 @@ There is no supported current Electris binary release.
 
 Historical 2018 ZIP releases are kept only as archival artifacts. They are unsupported, not security maintained, and modernization work does not retroactively make those assets current or supported.
 
+For release, support, and security status, see:
+
+- [`RELEASING.md`](RELEASING.md)
+- [`SUPPORT.md`](SUPPORT.md)
+- [`SECURITY.md`](SECURITY.md)
+
 If you choose to inspect those archives, use the repo's [Releases](https://github.com/jareddgotte/electris/releases) page as an archive reference only.
 
 ## Security architecture
@@ -36,4 +42,6 @@ browser. It exposes no arbitrary URL capability.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) to get started. The authoritative repository
 layout, architecture notes, supported environment, commands, generated-file rules,
-and validation expectations are maintained in [`AGENTS.md`](AGENTS.md).
+and validation expectations are maintained in [`AGENTS.md`](AGENTS.md). Release
+readiness, support, and security guidance are maintained in [`RELEASING.md`](RELEASING.md),
+[`SUPPORT.md`](SUPPORT.md), and [`SECURITY.md`](SECURITY.md).
