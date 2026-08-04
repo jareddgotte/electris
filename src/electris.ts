@@ -47,12 +47,12 @@ export const DEFAULT_HIGH_SCORES: HighScoreList = [
   0
 ]
 
-function normalizeHighScoreValue(value: unknown) {
+function normalizeHighScoreValue(value: unknown, allowNumericStrings: boolean) {
   if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
     return value
   }
 
-  if (typeof value === 'string' && value.trim() !== '') {
+  if (allowNumericStrings && typeof value === 'string' && value.trim() !== '') {
     const parsed = Number(value)
     if (Number.isFinite(parsed) && parsed >= 0) return parsed
   }
@@ -60,18 +60,23 @@ function normalizeHighScoreValue(value: unknown) {
   return null
 }
 
-export function normalizeHighScores(value: unknown): HighScoreList {
+export function parseHighScores(
+    value: unknown,
+    allowNumericStrings = true): HighScoreList | null {
   if (!Array.isArray(value) || value.length !== DEFAULT_HIGH_SCORES.length) {
-    return [...DEFAULT_HIGH_SCORES] as HighScoreList
+    return null
   }
 
-  const normalized = value.map(normalizeHighScoreValue)
-  if (normalized.some((entry) => entry === null)) {
-    return [...DEFAULT_HIGH_SCORES] as HighScoreList
-  }
+  const normalized = value.map((entry) =>
+    normalizeHighScoreValue(entry, allowNumericStrings))
+  if (normalized.some((entry) => entry === null)) return null
 
   return normalized
       .filter((entry): entry is number => entry !== null)
       .slice()
       .sort((left, right) => right - left) as HighScoreList
+}
+
+export function normalizeHighScores(value: unknown): HighScoreList {
+  return parseHighScores(value) || [...DEFAULT_HIGH_SCORES] as HighScoreList
 }

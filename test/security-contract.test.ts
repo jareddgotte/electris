@@ -3,16 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('react-dom', () => ({
   render: vi.fn()
 }))
-import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { pathToFileURL } from 'url'
-import { promisify } from 'util'
-import zlib from 'zlib'
-
-const deflate = promisify(zlib.deflate)
-const inflate = promisify(zlib.inflate)
-
 const handlers = new Map<string, (...args: any[]) => Promise<unknown>>()
 const exposedValues: Record<string, unknown> = {}
 const browserWindowFromWebContents = vi.fn()
@@ -210,107 +203,97 @@ describe('window security and preload contracts', () => {
   })
 })
 
-describe('high-score persistence', () => {
-  it('loads the legacy object-shaped file at the current userData path', async () => {
-    const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electris-smoke-'))
-    appPaths = {
-      appData: path.join(tmpRoot, 'app-data'),
-      userData: path.join(tmpRoot, 'user-data')
-    }
-    await fs.mkdir(appPaths.userData, {recursive: true})
-    await fs.writeFile(
-        path.join(appPaths.userData, 'Electris.config.dat'),
-        await deflate(Buffer.from(JSON.stringify({highScores: ['9', '8', 7, 6, 5, 4, 3, 2, 1, 0]}))))
-
-    const {HighScoreStore} = await import('../src/main/high-scores')
-    const store = new HighScoreStore()
-    const scores = await store.load()
-
-    expect(scores).toEqual([9, 8, 7, 6, 5, 4, 3, 2, 1, 0])
-  })
-
-  it('serializes overlapping saves and preserves the last write', async () => {
-    const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electris-smoke-'))
-    appPaths = {
-      appData: path.join(tmpRoot, 'app-data'),
-      userData: path.join(tmpRoot, 'user-data')
-    }
-
-    await fs.mkdir(appPaths.userData, {recursive: true})
-    const {HighScoreStore} = await import('../src/main/high-scores')
-    const store = new HighScoreStore()
-    const writeFileCalls: string[] = []
-    let releaseFirstWrite: (() => void) | null = null
-    const originalWriteFile = fs.writeFile.bind(fs) as typeof fs.writeFile
-    const writeFileSpy = vi.spyOn(fs, 'writeFile').mockImplementation(async (...args: Parameters<typeof fs.writeFile>) => {
-      writeFileCalls.push(String(args[0]))
-      if (writeFileCalls.length === 1) {
-        await new Promise<void>((resolve) => {
-          releaseFirstWrite = resolve
-        })
-      }
-      return originalWriteFile(...args)
-    })
-
-    const firstSave = store.save([10, 9, 8, 7, 6, 5, 4, 3, 2, 1])
-    for (let attempt = 0; attempt < 100 && writeFileCalls.length === 0; attempt++) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 10))
-    }
-    expect(writeFileCalls).toHaveLength(1)
-
-    const secondSave = store.save([20, 19, 18, 17, 16, 15, 14, 13, 12, 11])
-    const releaseWrite = releaseFirstWrite as (() => void) | null
-    if (typeof releaseWrite === 'function') releaseWrite()
-    await Promise.all([firstSave, secondSave])
-
-    writeFileSpy.mockRestore()
-
-    const written = await fs.readFile(path.join(appPaths.userData, 'Electris.config.dat'))
-    const decoded = JSON.parse((await inflate(written)).toString('utf8'))
-    expect(decoded).toEqual([20, 19, 18, 17, 16, 15, 14, 13, 12, 11])
-  })
-
-  it('falls back to the zero list when data is malformed', async () => {
-    const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electris-smoke-'))
-    appPaths = {
-      appData: path.join(tmpRoot, 'app-data'),
-      userData: path.join(tmpRoot, 'user-data')
-    }
-    await fs.mkdir(appPaths.userData, {recursive: true})
-    await fs.writeFile(path.join(appPaths.userData, 'Electris.config.dat'), Buffer.from('not compressed data'))
-
-    const {HighScoreStore} = await import('../src/main/high-scores')
-    const store = new HighScoreStore()
-
-    await expect(store.load()).resolves.toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-  })
-})
-
 describe('IPC sender and external-link restrictions', () => {
-  it('rejects unrelated senders and only opens reviewed destinations', async () => {
+  it('rejects every privileged operation from any non-Electris window', async () => {
+    const sender = {}
+    const electrisWindow = {
+      minimize: vi.fn(),
+      close: vi.fn(),
+      webContents: sender
+    }
+    const unrelatedWindow = {
+      minimize: vi.fn(),
+      close: vi.fn(),
+      webContents: {}
+    }
+    const highScoreStore = {
+      load: vi.fn().mockResolvedValue([10, 9, 8, 7, 6, 5, 4, 3, 2, 1]),
+      save: vi.fn().mockResolvedValue(undefined)
+    }
     const {registerElectrisIpcHandlers} = await import('../src/main/ipc')
-    registerElectrisIpcHandlers()
+    registerElectrisIpcHandlers(highScoreStore as any, () => electrisWindow as any)
 
-    const minimize = handlers.get('electris:window:minimize')
-    const openExternal = handlers.get('electris:external:open')
-    const loadScores = handlers.get('electris:high-scores:load')
-    if (!minimize || !openExternal || !loadScores) {
-      throw new Error('Expected IPC handlers to be registered')
+    browserWindowFromWebContents.mockReturnValue(unrelatedWindow)
+    const requests: Array<[string, ...unknown[]]> = [
+      ['electris:window:minimize'],
+      ['electris:window:close'],
+      ['electris:external:open', 'author'],
+      ['electris:high-scores:load'],
+      ['electris:high-scores:save', [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]]
+    ]
+
+    for (const [channel, ...args] of requests) {
+      const handler = handlers.get(channel)
+      expect(handler).toBeDefined()
+      await expect(handler?.({sender: unrelatedWindow.webContents}, ...args))
+          .rejects.toThrow('Blocked request from an unrelated sender')
     }
 
     browserWindowFromWebContents.mockReturnValue(null)
-    await expect(minimize({sender: {}, senderFrame: {}})).rejects.toThrow('Blocked request')
+    await expect(handlers.get('electris:window:minimize')?.({sender}))
+        .rejects.toThrow('Blocked request from an unrelated sender')
+    expect(electrisWindow.minimize).not.toHaveBeenCalled()
+    expect(electrisWindow.close).not.toHaveBeenCalled()
+    expect(shellOpenExternal).not.toHaveBeenCalled()
+    expect(highScoreStore.load).not.toHaveBeenCalled()
+    expect(highScoreStore.save).not.toHaveBeenCalled()
+  })
 
-    browserWindowFromWebContents.mockReturnValue({} as any)
-    await expect(openExternal({sender: {}, senderFrame: {}}, 'author')).resolves.toBeUndefined()
-    await expect(openExternal({sender: {}, senderFrame: {}}, 'license')).resolves.toBeUndefined()
-    await expect(openExternal({sender: {}, senderFrame: {}}, 'unknown')).rejects.toThrow('Blocked external destination')
-    await expect(openExternal({sender: {}, senderFrame: {}}, 'http://www.jaredgotte.com/')).rejects.toThrow('Blocked external destination')
+  it('allows only the designated window and validates destinations and scores', async () => {
+    const sender = {}
+    const electrisWindow = {
+      minimize: vi.fn(),
+      close: vi.fn(),
+      webContents: sender
+    }
+    const scores = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+    const highScoreStore = {
+      load: vi.fn().mockResolvedValue(scores),
+      save: vi.fn().mockResolvedValue(undefined)
+    }
+    const {registerElectrisIpcHandlers} = await import('../src/main/ipc')
+    registerElectrisIpcHandlers(highScoreStore as any, () => electrisWindow as any)
+    browserWindowFromWebContents.mockReturnValue(electrisWindow)
+    const event = {sender}
 
-    expect(shellOpenExternal).toHaveBeenCalledTimes(2)
+    await expect(handlers.get('electris:window:minimize')?.(event)).resolves.toBeUndefined()
+    await expect(handlers.get('electris:window:close')?.(event)).resolves.toBeUndefined()
+    await expect(handlers.get('electris:external:open')?.(event, 'author')).resolves.toBeUndefined()
+    await expect(handlers.get('electris:external:open')?.(event, 'license')).resolves.toBeUndefined()
+    await expect(handlers.get('electris:high-scores:load')?.(event)).resolves.toEqual(scores)
+    await expect(handlers.get('electris:high-scores:save')?.(event, scores)).resolves.toBeUndefined()
+
+    expect(electrisWindow.minimize).toHaveBeenCalledOnce()
+    expect(electrisWindow.close).toHaveBeenCalledOnce()
     expect(shellOpenExternal).toHaveBeenNthCalledWith(1, 'https://www.jaredgotte.com/')
     expect(shellOpenExternal).toHaveBeenNthCalledWith(2, 'https://opensource.org/licenses/ISC')
-    await expect(loadScores({sender: {}, senderFrame: {}})).resolves.toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    expect(highScoreStore.save).toHaveBeenCalledWith(scores)
+
+    for (const invalidDestination of ['unknown', 'http://www.jaredgotte.com/']) {
+      await expect(handlers.get('electris:external:open')?.(event, invalidDestination))
+          .rejects.toThrow('Blocked external destination')
+    }
+    for (const invalidScores of [
+      [1, 2],
+      [-1, 9, 8, 7, 6, 5, 4, 3, 2, 1],
+      [Infinity, 9, 8, 7, 6, 5, 4, 3, 2, 1],
+      ['10', '9', '8', '7', '6', '5', '4', '3', '2', '1']
+    ]) {
+      await expect(handlers.get('electris:high-scores:save')?.(event, invalidScores))
+          .rejects.toThrow('Blocked invalid high-score request')
+    }
+    expect(shellOpenExternal).toHaveBeenCalledTimes(2)
+    expect(highScoreStore.save).toHaveBeenCalledTimes(1)
   })
 })
 

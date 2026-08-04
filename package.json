@@ -8,7 +8,7 @@
     "lint": "eslint \"{src,test}/**/*.{ts,tsx}\"",
     "docs:check": "remark . --frail",
     "test": "vitest run",
-    "smoke": "vitest run test/electron-smoke.test.ts",
+    "smoke": "npm run build && node test/actual-electron-smoke.cjs",
     "typecheck": "tsc --noEmit",
     "build": "npm run clean && npm run typecheck && webpack --config webpack.config.js",
     "start": "electron ./app/main.js",
