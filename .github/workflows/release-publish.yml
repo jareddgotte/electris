@@ -1,0 +1,69 @@
+name: Publish verified draft release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing strict-SemVer draft tag to publish
+        required: true
+        type: string
+      confirmation:
+        description: Type "publish <tag>" after separate captain authorization
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-publish-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Revalidate and publish without rebuilding
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release-publish
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Validate selector and explicit confirmation before checkout
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: node -e "if (!/^v(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*))*))?$/.test(process.env.RELEASE_TAG) || process.env.CONFIRMATION !== 'publish ' + process.env.RELEASE_TAG) throw new Error('Selector and confirmation must exactly identify one strict SemVer tag')"
+
+      - name: Check out the selected existing tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Establish trusted tag ancestry before running selected code
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          tag_sha=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
+          test "$(git rev-parse HEAD)" = "$tag_sha"
+          git merge-base --is-ancestor HEAD refs/remotes/origin/master
+
+      - name: Use declared Node version
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Revalidate immutable source identity
+        id: identity
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: node scripts/release-identity.cjs "--tag=$RELEASE_TAG"
+
+      - name: Download, completely verify, and publish the existing draft
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.identity.outputs.tag }}
+          RELEASE_SHA: ${{ steps.identity.outputs.sha }}
+        run: node scripts/release-github.cjs publish "--tag=$RELEASE_TAG" "--commit=$RELEASE_SHA" "--repository=$GITHUB_REPOSITORY"

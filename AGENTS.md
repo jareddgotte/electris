@@ -16,7 +16,11 @@ This is the authoritative repository guide for contributors and coding agents. S
 - `package.json`: canonical scripts and supported tool engines.
 - `scripts/package-*.cjs`: local package target policy, build orchestration,
   verification, and bounded artifact smoke harness.
-- `RELEASING.md`, `SUPPORT.md`, and `SECURITY.md`: manual release readiness,
+- `scripts/release-*.cjs`: strict release identity, portable archives, target
+  evidence, checksums/manifests, and idempotent draft/publication contracts.
+- `.github/workflows/release-*.yml`: tag-driven draft preparation and separately
+  environment-approved publish-only automation.
+- `RELEASING.md`, `SUPPORT.md`, and `SECURITY.md`: release operator flow,
   support disposition, and security disposition guidance linked from the README.
 - `.github/pull_request_template.md`: required PR description structure.
 - `.github/workflows/pull-request.yml`: least-privilege pull-request CI (lint,
@@ -54,7 +58,8 @@ copy its guidance, or import commits by assumption.
 ignored and must not be committed.
 The assets under `app/css/` and `app/img/` are source files and remain tracked.
 Packaging writes ignored, unsigned directory artifacts and temporary work under
-`dist/`; failed package attempts remove their target and partial work.
+`dist/`; failed package attempts remove their target and partial work. Release archive
+and manifest output is also generated/ignored and must never be committed.
 
 ## Canonical commands
 
@@ -80,6 +85,12 @@ Run commands from the repository root:
 - `npm run package:smoke -- dist/electris-v<version>-<platform>-<arch>` — on a
   matching target host, bounded-launch the package twice and record passing startup,
   isolated preload/CSP/navigation, controls, and score-restart evidence.
+- `npm run release:identity -- --tag=v<version>` — fail closed unless the existing
+  strict-SemVer tag, package, both lock versions, release notes, checkout, and protected
+  `master` ancestry agree.
+- `npm run release:archive -- ...`, `release:assemble`, and
+  `release:verify-assets` — create and verify portable target archives plus the exact
+  release manifest/checksum set; see `RELEASING.md` for complete arguments and policy.
 
 For source or build configuration changes, run tests, lint, typecheck, smoke,
 documentation checks, and build. Add behavioral tests for changed behavior rather
@@ -105,11 +116,13 @@ The reviewed locally buildable target pairs in `scripts/package-config.cjs` are
 macOS (`darwin`) arm64/x64, Linux arm64/x64, and Windows (`win32`)
 arm64/ia32/x64. A cross-built artifact is only locally inspected and remains recorded
 as not launched. A target is locally tested only after `package:smoke` passes on that
-exact OS/architecture and updates its package record. There are no supported release
-targets or current supported binaries. These commands create unsigned, unpacked local
-directories only: they do not ZIP, publish, upload, tag, release, sign, or notarize.
-The application payload and source-map policy are the allowlist documented beside the
-configuration in `scripts/package-config.cjs`.
+exact OS/architecture and updates its package record. There are no current supported
+binaries. Initial public release policy permits unsigned Linux x64 and Windows x64
+portable archives; macOS arm64/x64 is qualification-only until signed and notarized.
+Local package commands still create only unpacked directories and never upload, tag,
+publish, sign, or notarize. Release workflows create drafts only from immutable tags;
+publication is a separate protected-environment dispatch. `RELEASING.md` is the
+authoritative identity, asset, recovery, trust, and operator policy.
 
 ## Change discipline
 
@@ -118,6 +131,10 @@ Commit `package-lock.json` whenever an intentional manifest or dependency change
 updates it; do not regenerate it for unrelated work. Follow the PR title and
 description conventions in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
+- Release workflow changes require manual event, permission, action-pin, secret-flow,
+  native-runner, and bounded-smoke review. Never test them by creating a tag or release
+  without separate authorization; repository administration is documented in
+  `docs/release-administration.md`.
 - Automated review workflows can fail silently; confirm that a review comment or
   resolved thread actually appeared instead of trusting a green check.
 - `anthropics/claude-code-action` itself validates that a PR's workflow file is

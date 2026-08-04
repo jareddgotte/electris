@@ -15,7 +15,12 @@
     "package:host": "node scripts/package.cjs --host",
     "package:target": "node scripts/package.cjs",
     "package:verify": "node scripts/package-verify.cjs",
-    "package:smoke": "node scripts/package-smoke.cjs"
+    "package:smoke": "node scripts/package-smoke.cjs",
+    "release:identity": "node scripts/release-identity.cjs",
+    "release:archive": "node scripts/release-archive.cjs",
+    "release:assemble": "node scripts/release-assets.cjs",
+    "release:verify-assets": "node scripts/release-assets.cjs",
+    "release:github": "node scripts/release-github.cjs"
   },
   "engines": {
     "node": ">=22.13 <23",

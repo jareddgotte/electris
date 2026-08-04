@@ -16,6 +16,9 @@ out/
 /electron/
 build/
 dist/
+/release-assets/
+/release-staging/
+/release-work/
 built/
 electris-darwin-x64*
 electris-linux-arm64*
