@@ -9,9 +9,9 @@ const {
   releaseArchiveName,
   releaseManifestName,
   releaseNotesPath,
-  releaseTargets
+  releaseTargets,
+  sha256
 } = require('./release-config.cjs')
-const {sha256} = require('./release-archive.cjs')
 const {verifyReleaseSet} = require('./release-assets.cjs')
 const {root} = require('./package-config.cjs')
 

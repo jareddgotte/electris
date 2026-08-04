@@ -7,10 +7,10 @@ const {
   releaseArchiveName,
   releaseManifestName,
   releaseTargets,
+  sha256,
   targetKey
 } = require('./release-config.cjs')
 const {parseReleaseTag} = require('./release-identity.cjs')
-const {sha256} = require('./release-archive.cjs')
 
 function walkFiles(directory) {
   const files = []

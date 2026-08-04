@@ -1,7 +1,13 @@
 'use strict'
 
+const crypto = require('crypto')
+const fs = require('fs')
 const path = require('path')
 const {projectPackage, root} = require('./package-config.cjs')
+
+function sha256(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex')
+}
 
 const releaseTargets = Object.freeze([
   Object.freeze({platform: 'linux', arch: 'x64', extension: 'tar.gz', portable: true, public: true}),
@@ -42,5 +48,6 @@ module.exports = {
   releaseManifestName,
   releaseNotesPath,
   releaseTargets,
+  sha256,
   targetKey
 }

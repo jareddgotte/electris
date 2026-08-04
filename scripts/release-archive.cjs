@@ -1,6 +1,5 @@
 'use strict'
 
-const crypto = require('crypto')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
@@ -10,13 +9,10 @@ const {validateReleaseIdentity} = require('./release-identity.cjs')
 const {
   findReleaseTarget,
   releaseArchiveName,
+  sha256,
   targetKey
 } = require('./release-config.cjs')
 const {root} = require('./package-config.cjs')
-
-function sha256(filePath) {
-  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex')
-}
 
 function runTar(args, operations = {}) {
   const run = operations.spawnSync || spawnSync

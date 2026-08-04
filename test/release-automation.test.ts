@@ -436,3 +436,20 @@ describe('draft release idempotency', () => {
       .rejects.toThrow(/unexpected assets/)
   })
 })
+
+describe('release GitHub and asset scripts stay dependency-free of @electron/asar', () => {
+  it('loads release-github.cjs and release-assets.cjs when @electron/asar cannot resolve', () => {
+    const probe = `
+      const Module = require('module')
+      const originalResolve = Module._resolveFilename
+      Module._resolveFilename = function (request, ...args) {
+        if (request === '@electron/asar') throw new Error('MODULE_NOT_FOUND: simulated missing @electron/asar')
+        return originalResolve.call(this, request, ...args)
+      }
+      require('./scripts/release-github.cjs')
+      require('./scripts/release-assets.cjs')
+    `
+    const result = spawnSync(process.execPath, ['-e', probe], {cwd: process.cwd(), encoding: 'utf8'})
+    expect(result.status, result.stderr).toBe(0)
+  })
+})
