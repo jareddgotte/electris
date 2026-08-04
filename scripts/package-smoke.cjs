@@ -88,10 +88,11 @@ class DevToolsClient {
   }
 }
 
-async function waitFor(readValue, timeout = 10000) {
+async function waitFor(readValue, timeout = 10000, signal) {
   const deadline = Date.now() + timeout
   let lastError
   while (Date.now() < deadline) {
+    if (signal?.aborted) throw signal.reason || new Error('Operation aborted')
     try {
       const value = await readValue()
       if (value) return value
@@ -103,15 +104,17 @@ async function waitFor(readValue, timeout = 10000) {
   throw lastError || new Error('Timed out waiting for packaged Electron')
 }
 
-async function findRenderer(port) {
+async function findRenderer(port, signal) {
   return waitFor(async () => {
     const response = await fetch(`http://127.0.0.1:${port}/json/list`, {
-      signal: AbortSignal.timeout(1000)
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(1000)])
+        : AbortSignal.timeout(1000)
     })
     if (!response.ok) return null
     const targets = await response.json()
     return targets.find((target) => target.type === 'page' && target.url.startsWith('file:')) || null
-  }, 15000)
+  }, 15000, signal)
 }
 
 function launchCommand(executable, args) {
@@ -126,7 +129,7 @@ function launchCommand(executable, args) {
 }
 
 function stopProcess(child, signal = 'SIGTERM') {
-  if (child.exitCode !== null || child.signalCode !== null) return
+  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return
   try {
     if (process.platform === 'win32') child.kill(signal)
     else process.kill(-child.pid, signal)
@@ -136,21 +139,26 @@ function stopProcess(child, signal = 'SIGTERM') {
 }
 
 async function waitForExit(child, timeout = 5000) {
-  if (child.exitCode !== null || child.signalCode !== null) return
+  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return
   await Promise.race([
     new Promise((resolve) => child.once('exit', resolve)),
     delay(timeout)
   ])
 }
 
-async function smokeLaunch(executable, userDataPath, mode) {
-  const port = await reservePort()
-  const launch = launchCommand(executable, [
+async function smokeLaunch(executable, userDataPath, mode, operations = {}) {
+  const reserveDebugPort = operations.reservePort || reservePort
+  const chooseLaunchCommand = operations.launchCommand || launchCommand
+  const spawnProcess = operations.spawnProcess || spawn
+  const stopChild = operations.stopProcess || stopProcess
+  const waitForChildExit = operations.waitForExit || waitForExit
+  const port = await reserveDebugPort()
+  const launch = chooseLaunchCommand(executable, [
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${userDataPath}`,
     '--disable-gpu'
   ])
-  const child = spawn(launch.command, launch.args, {
+  const child = spawnProcess(launch.command, launch.args, {
     detached: process.platform !== 'win32',
     env: {...process.env, NODE_ENV: 'production'},
     stdio: ['ignore', 'pipe', 'pipe']
@@ -159,13 +167,26 @@ async function smokeLaunch(executable, userDataPath, mode) {
   const appendOutput = (chunk) => {
     output = `${output}${chunk}`.slice(-100000)
   }
+  const rendererDiscovery = new AbortController()
+  const spawnFailure = new Promise((_resolve, reject) => {
+    child.once('error', (error) => {
+      const detail = error instanceof Error ? error.stack || error.message : String(error)
+      appendOutput(`[spawn error] ${detail}\n`)
+      const launchError = new Error(`Could not launch packaged Electron: ${detail}`)
+      rendererDiscovery.abort(launchError)
+      reject(launchError)
+    })
+  })
   child.stdout.on('data', appendOutput)
   child.stderr.on('data', appendOutput)
   let client
-  const watchdog = setTimeout(() => stopProcess(child), launchTimeout)
+  const watchdog = setTimeout(() => stopChild(child, 'SIGTERM'), launchTimeout)
 
   try {
-    const target = await findRenderer(port)
+    const target = await Promise.race([
+      findRenderer(port, rendererDiscovery.signal),
+      spawnFailure
+    ])
     client = new DevToolsClient(target.webSocketDebuggerUrl)
     await client.connect()
     await client.send('Runtime.enable')
@@ -243,11 +264,12 @@ async function smokeLaunch(executable, userDataPath, mode) {
   } catch (error) {
     throw new Error(`${error.message}\nPackaged Electron output:\n${output}`)
   } finally {
+    rendererDiscovery.abort()
     clearTimeout(watchdog)
     if (client) client.close()
-    stopProcess(child)
-    await waitForExit(child)
-    stopProcess(child, 'SIGKILL')
+    stopChild(child, 'SIGTERM')
+    await waitForChildExit(child)
+    stopChild(child, 'SIGKILL')
   }
 }
 
@@ -295,4 +317,4 @@ async function main() {
 
 if (require.main === module) void main()
 
-module.exports = {runSmoke}
+module.exports = {runSmoke, smokeLaunch}
