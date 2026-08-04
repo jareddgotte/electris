@@ -80,8 +80,18 @@ function assertNoForbiddenPaths(artifactPath) {
       if (segments.some((segment) => forbiddenSegments.has(segment)) || forbiddenFile.test(relative)) {
         fail(`forbidden source, test, development, cache, or secret-like path is present: ${relative}`)
       }
-      // Electron's macOS framework contains required symlinks. The staged app itself
-      // is sealed in app.asar and checked against the exact allowlist above.
+      // Electron's macOS framework contains required relative symlinks. They must
+      // remain inside the package so archival/extraction cannot capture or redirect
+      // through host paths. The staged app itself is sealed in app.asar and checked
+      // against the exact allowlist above.
+      if (entry.isSymbolicLink()) {
+        const target = fs.readlinkSync(absolute)
+        const resolved = path.resolve(path.dirname(absolute), target)
+        const relativeTarget = path.relative(artifactPath, resolved)
+        if (path.isAbsolute(target) || relativeTarget === '..' || relativeTarget.startsWith(`..${path.sep}`)) {
+          fail(`symbolic link escapes the artifact: ${relative} -> ${target}`)
+        }
+      }
       if (entry.isDirectory()) pending.push(absolute)
     }
   }

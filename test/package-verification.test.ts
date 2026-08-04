@@ -154,6 +154,16 @@ describe('package verification', () => {
       .toThrow(/forbidden source, test, development, cache, or secret-like path is present: \.env/)
   })
 
+  it('allows internal runtime symlinks and rejects links that escape the artifact', () => {
+    fs.symlinkSync('version', path.join(artifactPath, 'internal-version-link'))
+    expect(() => verifyArtifact(artifactPath, {sourceRoot: temporaryRoot, sourcePackage}))
+      .not.toThrow()
+
+    fs.symlinkSync(path.join(temporaryRoot, 'outside-secret'), path.join(artifactPath, 'escaping-link'))
+    expect(() => verifyArtifact(artifactPath, {sourceRoot: temporaryRoot, sourcePackage}))
+      .toThrow(/symbolic link escapes the artifact/)
+  })
+
   it('rejects identity and version mismatches', () => {
     const record = JSON.parse(fs.readFileSync(recordPath, 'utf8'))
     record.version = '9.9.9'

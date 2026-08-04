@@ -14,7 +14,9 @@ There is no supported current Electris binary release.
 
 Historical 2018 ZIP releases are kept only as archival artifacts. They are unsupported, not security maintained, and modernization work does not retroactively make those assets current or supported.
 
-For release, support, and security status, see:
+The repository contains guarded tag-driven draft automation for future portable Linux x64 and Windows x64 packages, plus draft-only macOS qualification. Automation is not a release or support claim: tags, publication, GitHub controls, vulnerability reporting, branding review, and macOS signing/notarization require separate authorization or completion. Windows packages are initially allowed to be unsigned and can trigger SmartScreen or “Unknown Publisher” warnings.
+
+For the exact operator flow, assets, trust consequences, support window, and security status, see:
 
 - [`RELEASING.md`](RELEASING.md)
 - [`SUPPORT.md`](SUPPORT.md)

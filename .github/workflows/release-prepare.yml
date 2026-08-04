@@ -1,0 +1,246 @@
+name: Prepare draft release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable strict-SemVer tag to prepare again
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-prepare-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  identity:
+    name: Validate immutable release identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.identity.outputs.tag }}
+      version: ${{ steps.identity.outputs.version }}
+      sha: ${{ steps.identity.outputs.sha }}
+      prerelease: ${{ steps.identity.outputs.prerelease }}
+    steps:
+      - name: Reject non-tag selectors before running selected repository code
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: node -e "if (!/^v(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|[A-Za-z-][0-9A-Za-z-]*))*))?$/.test(process.env.RELEASE_TAG)) throw new Error('Selector must be a strict SemVer tag')"
+
+      - name: Check out the selected existing tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Establish trusted tag ancestry before running selected code
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          tag_sha=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
+          test "$(git rev-parse HEAD)" = "$tag_sha"
+          git merge-base --is-ancestor HEAD refs/remotes/origin/master
+
+      - name: Use declared Node version
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Validate tag, package, lockfile, notes, checkout, and master ancestry
+        id: identity
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: node scripts/release-identity.cjs "--tag=$RELEASE_TAG"
+
+      - name: Reject a conflicting GitHub Release before packaging
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.identity.outputs.tag }}
+          RELEASE_SHA: ${{ steps.identity.outputs.sha }}
+        run: node scripts/release-github.cjs preflight "--tag=$RELEASE_TAG" "--commit=$RELEASE_SHA" "--repository=$GITHUB_REPOSITORY"
+
+  source-validate:
+    name: Validate tagged source
+    needs: identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out validated tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.identity.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Use declared Node version
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Use declared npm version
+        run: npm install --global npm@11.19.0
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Run source validation
+        run: npm run lint && npm run typecheck && npm test && npm run docs:check && npm run build
+
+      - name: Allow only the installed Electron smoke binary to use user namespaces
+        run: |
+          cat <<EOF | sudo tee /etc/apparmor.d/electris-electron-release-source-smoke
+          abi <abi/4.0>,
+          include <tunables/global>
+
+          profile electris-electron-release-source-smoke ${{ github.workspace }}/node_modules/electron/dist/electron flags=(unconfined) {
+            userns,
+            include if exists <local/electris-electron-release-source-smoke>
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/electris-electron-release-source-smoke
+
+      - name: Run bounded Electron source smoke
+        run: npm run smoke
+
+  package:
+    name: Qualify ${{ matrix.platform }}/${{ matrix.arch }}
+    needs: [identity, source-validate]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux
+            arch: x64
+          - runner: windows-latest
+            platform: win32
+            arch: x64
+          - runner: macos-15-arm64
+            platform: darwin
+            arch: arm64
+          - runner: macos-15-intel
+            platform: darwin
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out validated tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.identity.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Use declared Node version
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Use declared npm version
+        run: npm install --global npm@11.19.0
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Assert exact native runner target
+        env:
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: node -e "if (process.platform !== process.env.EXPECTED_PLATFORM || process.arch !== process.env.EXPECTED_ARCH) throw new Error('Runner is ' + process.platform + '/' + process.arch + ', expected ' + process.env.EXPECTED_PLATFORM + '/' + process.env.EXPECTED_ARCH)"
+
+      - name: Build package on its native host
+        run: npm run package:host
+
+      - name: Verify package before launch
+        env:
+          PACKAGE_PATH: dist/electris-v${{ needs.identity.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}
+        run: node scripts/package-verify.cjs "$PACKAGE_PATH"
+
+      - name: Allow only the packaged Linux Electron binary to use user namespaces
+        if: matrix.platform == 'linux'
+        run: |
+          cat <<EOF | sudo tee /etc/apparmor.d/electris-electron-release-package-smoke
+          abi <abi/4.0>,
+          include <tunables/global>
+
+          profile electris-electron-release-package-smoke ${{ github.workspace }}/dist/electris-v${{ needs.identity.outputs.version }}-linux-x64/electris flags=(unconfined) {
+            userns,
+            include if exists <local/electris-electron-release-package-smoke>
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/electris-electron-release-package-smoke
+
+      - name: Run bounded matching-host package smoke
+        env:
+          PACKAGE_PATH: dist/electris-v${{ needs.identity.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}
+        run: node scripts/package-smoke.cjs "$PACKAGE_PATH"
+
+      - name: Verify package after launch
+        env:
+          PACKAGE_PATH: dist/electris-v${{ needs.identity.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}
+        run: node scripts/package-verify.cjs "$PACKAGE_PATH"
+
+      - name: Archive, extract, and verify final package bytes
+        env:
+          PACKAGE_PATH: dist/electris-v${{ needs.identity.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}
+          RELEASE_OUTPUT: release-work/${{ matrix.platform }}-${{ matrix.arch }}
+          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+          RELEASE_SHA: ${{ needs.identity.outputs.sha }}
+          RELEASE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/release-archive.cjs "--artifact=$PACKAGE_PATH" "--output=$RELEASE_OUTPUT" "--tag=$RELEASE_TAG" "--commit=$RELEASE_SHA" "--run-id=$GITHUB_RUN_ID" "--run-url=$RELEASE_RUN_URL"
+
+      - name: Retain target qualification evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-target-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-work/${{ matrix.platform }}-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 14
+
+  assemble-draft:
+    name: Assemble guarded draft
+    needs: [identity, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out validated tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.identity.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Use declared Node version
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Download every required target result
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: release-target-*
+          path: release-staging
+          merge-multiple: false
+
+      - name: Assemble exact public assets and qualification manifest
+        env:
+          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+          RELEASE_SHA: ${{ needs.identity.outputs.sha }}
+        run: node scripts/release-assets.cjs "--input=release-staging" "--output=release-assets" "--tag=$RELEASE_TAG" "--commit=$RELEASE_SHA"
+
+      - name: Create or idempotently complete the draft only
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+          RELEASE_SHA: ${{ needs.identity.outputs.sha }}
+        run: node scripts/release-github.cjs sync-draft "--tag=$RELEASE_TAG" "--commit=$RELEASE_SHA" "--repository=$GITHUB_REPOSITORY" "--assets=release-assets"

@@ -1,113 +1,110 @@
-# Release readiness
+# Release readiness and automation
 
-Electris does not have a current supported release. Historical 2018 ZIP assets remain archival only.
+Electris has no current supported release. Historical 2018 assets remain unsupported archives. The release workflows added here automate evidence and guarded drafts; they do not authorize a tag, publish a release, configure GitHub, or remove the readiness gates below.
 
-This checklist is manual. Do not publish anything until every step is complete and separately authorized.
+## Release policy
 
-## 0. Release authorization
+- An immutable strict-SemVer tag prepares a draft. Ordinary branch pushes, merges, pull requests, forks, comments, and arbitrary SHAs cannot do so.
+- Preparation and publication require separate captain authorization. Publication is a manual dispatch that revalidates and publishes the existing draft without rebuilding it.
+- `package.json#version` is the single editable version source. Use `npm version --no-git-tag-version <version>` so npm mirrors it into both required lockfile fields, then add `docs/releases/v<version>.md` in the same proposal.
+- The next approved channel is `0.2.0-rc.1`, followed by `0.2.0`. Creating either tag is a separately authorized operation and is not part of release-automation implementation.
+- Tags use `vX.Y.Z` or strict SemVer prereleases such as `vX.Y.Z-rc.N`. Build metadata and leading-zero forms are rejected. Existing `v0.1.0` through `v0.1.2` are immutable archives and may never be reused.
 
-- **Prepare authorization:** a designated release authorization owner approves creating or updating a draft release candidate.
-- **Publish authorization:** that owner separately approves publishing the final release.
-- If the owner is not designated, or either authorization is missing, stop here.
+The full SemVer remains the tag, package, application, notes, record, artifact, manifest, and GitHub Release identity. Native build-version fields use the numeric `X.Y.Z` core because operating-system metadata restricts that field; it is not an independent release version.
 
-## 1. Baseline evidence
+## Required identity gate
 
-- Confirm the checked-out commit is approved for release.
-- Confirm `package.json` version, changelog/release-note entry, and any release metadata agree.
-- Confirm deterministic PR validation is green in `.github/workflows/pull-request.yml`.
-- Keep deterministic PR checks distinct from any locally built artifact evidence.
+Before packaging, `npm run release:identity -- --tag=v<version>` requires exact agreement among:
 
-## 2. Clean local validation
+1. `package.json#version`;
+2. the top-level and root-package `package-lock.json` versions;
+3. the strict tag and its checked-out commit;
+4. `docs/releases/v<version>.md`; and
+5. ancestry from protected `origin/master`.
 
-Run the repository-owned commands from the root:
+It also rejects the archival tags. The prepare workflow separately rejects an existing published or conflicting GitHub Release before any package job runs. A recovery dispatch accepts only an already existing tag. No workflow creates, moves, or deletes tags.
 
-- `npm ci`
-- `npm run lint`
-- `npm test`
-- `npm run typecheck`
-- `npm run smoke`
-- `npm run docs:check`
-- `npm run build`
+## Automated preparation
 
-These validate source, not a release artifact.
+`.github/workflows/release-prepare.yml` runs on `v*` tag pushes and recovery-only manual dispatch. The tag glob is only an event filter; the repository identity script performs strict parsing.
 
-## 3. Package and verify
+The workflow:
 
-Use the landed packaging commands and the reviewed target allowlist in `scripts/package-config.cjs`:
+1. validates identity and checks for a conflicting release;
+2. runs frozen source validation and the bounded source smoke;
+3. natively packages, verifies, bounded-smokes, verifies again, archives, freshly extracts, and verifies Linux x64, Windows x64, macOS arm64, and macOS x64;
+4. retains all four target archives as short-lived workflow qualification evidence;
+5. assembles the exact public asset set only after every target succeeds; and
+6. creates or idempotently completes a **draft** GitHub Release.
 
-- Host build/package: `npm run package:host`
-- Reviewed target package: `npm run package:target -- --platform=<darwin|linux|win32> --arch=<reviewed-arch>`
-- Artifact verification: `npm run package:verify -- dist/electris-v<version>-<platform>-<arch>`
-- Matching-host smoke: `npm run package:smoke -- dist/electris-v<version>-<platform>-<arch>`
+Only draft assembly receives `contents: write`. Per-tag concurrency does not cancel an in-progress release. Existing assets are downloaded and hash-compared; missing assets are uploaded, while unexpected or different bytes stop the run. Raw `dist/` directories are never uploaded.
 
-Safe evidence expectations:
+Linux's workflow AppArmor profiles grant `userns` only to the exact installed or packaged Electron executable and do not disable Electron's sandbox. All Electron launches use repository-owned bounded smoke harnesses.
 
-- `package:verify` confirms artifact identity, runtime version, allowlisted payload, and forbidden-path absence.
-- `package:smoke` records target-executed startup, isolated preload, CSP/navigation, window controls, and score restart evidence.
-- `package:smoke` does not exercise historical-score migration or corrupt-score fallback directly; that behavior is already covered by `npm test` (`test/high-scores.test.ts`), which Section 2 requires as part of clean local validation.
-- Buildable-only or cross-built artifacts remain unlaunched — not locally tested per AGENTS.md — until `package:smoke` runs on that exact target OS/architecture; `package:verify` already establishes artifact identity and payload verification independent of launch status.
+## Assets and target policy
 
-## 4. Package content review
+Initial public assets are unsigned portable packages, not installers:
 
-Inspect the artifact for:
+```text
+electris-v<V>-linux-x64-portable.tar.gz
+electris-v<V>-win32-x64-portable.zip
+electris-v<V>-release-manifest.json
+electris-v<V>-SHA256SUMS.txt
+```
 
-- exact Electris version and Electron version;
-- expected executable platform/architecture;
-- `LICENSE`, source-map, and production-dependency policy as implemented by the package verifier;
-- no source, test, cache, secret-like, or other forbidden paths.
+Each archive contains one `electris-v<V>-<platform>-<arch>/` directory. The manifest records exact tag/commit/package/Electron/workflow/target/smoke/signing identity. `SHA256SUMS.txt` is bytewise sorted and covers both public archives and the manifest, but not itself.
 
-## 5. Release asset handling
+The macOS x64 and arm64 ZIPs are qualification-only workflow artifacts while unsigned. They are represented in the manifest but deliberately absent from the GitHub Release asset set, so publishing a draft cannot accidentally expose them. Source maps, source, tests, development dependencies, caches, and secret-like files are forbidden; required project and Electron notices remain in packages.
 
-- Generate a checksum file for each uploaded asset with an explicit command appropriate to the release host — for example `sha256sum <artifact> > <artifact>.sha256` on Linux, `shasum -a 256 <artifact> > <artifact>.sha256` on macOS, or `Get-FileHash <artifact> -Algorithm SHA256 | Out-File <artifact>.sha256` on Windows — before publication.
-- Draft release assets, uploaded archives, and checksums are separate evidence.
-- Checksums help integrity checking only; they do not prove origin or provenance.
-- Do not claim PR CI built an uploaded asset.
-- Do not claim a checksum is a signature or provenance substitute.
+Checksums establish downloaded-byte integrity only. They are not publisher signatures, provenance, or reproducibility claims. GitHub's generated source archives are not Electris distributables.
 
-## 6. Signing and notarization
+## Signing and user trust
 
-- **Disposition:** unsupported/blocked until explicitly approved for a later release proposal.
-- **Credential owner:** none recorded.
-- Do not infer signing or notarization from packaging output.
+- **Linux x64:** unsigned portable archives may initially publish with truthful notes and SHA-256 evidence.
+- **Windows x64:** unsigned portable archives may initially publish. Users can see SmartScreen or “Unknown Publisher”; checksums do not remove that warning. Future Authenticode work requires a separately approved certificate or managed-signing design.
+- **macOS x64/arm64:** public assets are blocked until every nested component is Developer ID signed with hardened runtime, notarized by Apple, stapled, verified by `codesign`, notary tooling and Gatekeeper assessment, and then smoke-tested before final archival and hashing. Do not tell users to bypass Gatekeeper.
 
-## 7. Security and support blockers
+The future signing job must use a protected `release-signing` environment. Expected environment-only secret names are `APPLE_CERTIFICATE_P12_BASE64`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_TEAM_ID`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID`, and `APPLE_API_KEY_P8_BASE64`. Temporary keychains/passwords are job-generated and destroyed. Windows exportable-certificate names, if that model is approved, are `WINDOWS_CERTIFICATE_PFX_BASE64` and `WINDOWS_CERTIFICATE_PASSWORD`; OIDC managed signing is preferable. No credential currently exists in repository automation, and no signed status is inferred.
 
-- **Private vulnerability reporting route:** unsupported/blocked until a repository-approved private route exists.
-- **Support window:** unsupported/blocked; no current supported release exists.
-- **Supported platforms:** only platforms with recorded target-executed `package:smoke` evidence may be claimed.
-- **Historical binaries:** unsupported, archival only.
-- **Branding/trademark review:** blocked until a separate review records its outcome.
+Signing/notarization must occur before final smoke, archive, manifest, and checksum generation. Adding those steps requires focused executable code, tests, and credential-owner approval; documentation is not a signing implementation.
 
-## 8. Publish authorization
+## Manual publication
 
-Only after all applicable evidence exists may the designated release authorization owner separately authorize publication.
+`.github/workflows/release-publish.yml` accepts only an existing tag and an exact `publish <tag>` confirmation. Its sole job uses the protected `release-publish` environment and is the only publication path with `contents: write`.
 
-- Verify the draft release, upload list, and notes manually.
-- Publish only after explicit publish authorization.
-- Keep the draft evidence and checksum records.
+After environment approval, it revalidates tag/package/lock/note/ancestry identity, downloads every draft asset from GitHub, rejects missing/extra/different assets, verifies manifest and checksums, and publishes without rebuilding or replacing bytes. Prereleases remain prereleases and do not replace the latest stable release; a stable release becomes latest.
 
-## 9. Post-publication verification
+Before authorizing publication, manually review the committed notes, prepare run, target evidence, exact draft downloads, unsigned warnings, and every readiness gate. After publication, download the public assets, recheck SHA-256, extract/verify, and run the bounded package smoke on each claimed host.
 
-After publication:
+## Failure recovery and rollback
 
-- download the published asset from the release page;
-- verify the checksum against the uploaded checksum file;
-- run startup validation on the published artifact on the claimed target host;
-- confirm the release page, notes, and asset names match the approved draft.
+- A failed required platform leaves no assembled or published release. Rerun transient failures against the same immutable tag.
+- Partial draft assembly adds missing assets and accepts byte-identical assets only. Different bytes or extras require investigation; there is no clobber path.
+- A source, version, note, or package defect requires a corrected pull request and a new SemVer/tag (`rc.2` or a patch). Never move or delete the old tag to hide it.
+- Keep bad drafts unpublished. If a release was published, mark it withdrawn/deprecated, retain incident hashes and evidence, and supersede it with a new version. Never silently replace published bytes. Desktop downloads cannot be remotely rolled back.
+- Enable GitHub immutable releases only after an authorized prerelease canary proves matrix failure, partial-upload recovery, duplicate preparation, draft download verification, and publication controls.
 
-## 10. Rollback and deprecation
+## Readiness blockers
 
-If a release must be withdrawn or superseded:
+Automation is not permission to claim a supported release. Before public release:
 
-- deprecate the release with a follow-up release note or release-page notice;
-- publish a replacement only with new authorization;
-- retain prior checksums, notes, and verification evidence;
-- do not delete historical evidence just to hide a failed release.
+- resolve or explicitly disposition dependency-audit findings;
+- complete focused icon, branding, and trademark review;
+- enable the approved GitHub private vulnerability-reporting route;
+- confirm hosted-runner labels/capacity and matching-host smoke evidence;
+- configure protected environments, tag rules, and least-privilege repository settings described in [`docs/release-administration.md`](docs/release-administration.md);
+- record preparation and separate publication authorization; and
+- for macOS, implement and prove signing/notarization with captain-owned credentials.
 
-## Authoritative references
+Newest stable release support, once one is actually authorized and published, is best effort with no response-time SLA. Until then, [`SUPPORT.md`](SUPPORT.md) and [`SECURITY.md`](SECURITY.md) remain explicit that no supported release exists.
 
-- [`AGENTS.md`](AGENTS.md)
-- [`README.md`](README.md)
-- [`scripts/package-config.cjs`](scripts/package-config.cjs)
-- [`scripts/package-verify.cjs`](scripts/package-verify.cjs)
-- [`scripts/package-smoke.cjs`](scripts/package-smoke.cjs)
+## Local commands
+
+The release-contract commands are:
+
+- `npm run release:identity -- --tag=v<version>`
+- `npm run release:archive -- --artifact=<path> --output=<path> --tag=<tag> --commit=<sha> --run-id=<id> --run-url=<url>`
+- `npm run release:assemble -- --input=<staging> --output=<release> --tag=<tag> --commit=<sha>`
+- `npm run release:verify-assets -- --dir=<release> --tag=<tag> --commit=<sha>`
+
+`release:github` is workflow plumbing for preflight, idempotent draft synchronization, and publish-only revalidation. It must not be used to bypass captain authorization or protected environments.

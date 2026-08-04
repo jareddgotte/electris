@@ -13,6 +13,7 @@ const {
   targets
 } = require('./package-config.cjs')
 const {expectedPackagedPackage, verifyArtifact} = require('./package-verify.cjs')
+const {nativeBuildVersion} = require('./release-identity.cjs')
 
 function usage(message) {
   if (message) console.error(message)
@@ -98,7 +99,9 @@ async function createPackage(target, operations = {}) {
       executableName: projectPackage.name,
       appBundleId: 'com.jaredgotte.electris',
       appVersion: projectPackage.version,
-      buildVersion: projectPackage.version,
+      // Native build-version fields accept only numeric components. The full strict
+      // SemVer remains the application/package/release identity via appVersion.
+      buildVersion: nativeBuildVersion(projectPackage.version),
       electronVersion: projectPackage.devDependencies.electron,
       platform: target.platform,
       arch: target.arch,
