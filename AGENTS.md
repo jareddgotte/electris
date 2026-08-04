@@ -16,6 +16,8 @@ This is the authoritative repository guide for contributors and coding agents. S
 - `package.json`: canonical scripts and supported tool engines.
 - `scripts/package-*.cjs`: local package target policy, build orchestration,
   verification, and bounded artifact smoke harness.
+- `RELEASING.md`, `SUPPORT.md`, and `SECURITY.md`: manual release readiness,
+  support disposition, and security disposition guidance linked from the README.
 - `.github/pull_request_template.md`: required PR description structure.
 - `.github/workflows/pull-request.yml`: least-privilege pull-request CI (lint,
   typecheck, tests, smoke, documentation check, build).
@@ -86,7 +88,9 @@ characterizing production piece or board behavior. Packaging changes additionall
 require `package:host`, `package:verify`, and `package:smoke` on a capable matching
 host. For documentation-only changes, verify commands and links against the
 authoritative files and run code validation when the documentation depends on build
-behavior.
+behavior. Release-readiness guidance lives in `RELEASING.md`; keep the command list
+synchronized with those package commands rather than copying a second, divergent
+variant.
 
 Local packaging requires `npm ci` under the declared Node/npm versions and access to
 Electron's target runtime download (or its existing local cache). Artifact smoke also
