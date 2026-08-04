@@ -25,6 +25,7 @@ Run the repository-owned commands from the root:
 - `npm run lint`
 - `npm test`
 - `npm run typecheck`
+- `npm run smoke`
 - `npm run docs:check`
 - `npm run build`
 
