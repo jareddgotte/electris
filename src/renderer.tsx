@@ -123,7 +123,7 @@ class App extends React.Component {
           </section>
         </main>
         <div id="footer">
-          <span>&copy; 2018 <a href="#author" data-electris-external="author">Jared Gotte</a>; licensed under <a href="#license" data-electris-external="license">ISC</a></span>
+          <span>&copy; 2018-2026 <a href="#author" data-electris-external="author">Jared Gotte</a>; licensed under <a href="#license" data-electris-external="license">ISC</a></span>
         </div>
       </React.Fragment>
     )
