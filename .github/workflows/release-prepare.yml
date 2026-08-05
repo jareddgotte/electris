@@ -34,6 +34,13 @@ jobs:
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: node -e "if (!/^v(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*))*))?$/.test(process.env.RELEASE_TAG)) throw new Error('Selector must be a strict SemVer tag')"
 
+      - name: Require manual recovery to run the selected tag workflow
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          SELECTED_REF: ${{ github.ref }}
+        run: node -e "if (process.env.SELECTED_REF !== 'refs/tags/' + process.env.RELEASE_TAG) throw new Error('Recovery dispatch must select the same existing tag ref named by its input')"
+
       - name: Check out the selected existing tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -163,13 +170,18 @@ jobs:
           RELEASE_TARGET: ${{ matrix.platform }}-${{ matrix.arch }}
         run: node scripts/release-canary.cjs
 
+      - name: Resolve native package path
+        id: package-path
+        env:
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: node -e "const fs = require('fs'); const version = require('./package.json').version; fs.appendFileSync(process.env.GITHUB_OUTPUT, 'path=dist/electris-v' + version + '-' + process.env.EXPECTED_PLATFORM + '-' + process.env.EXPECTED_ARCH + '\n')"
+
       - name: Build package on its native host
         run: npm run package:host
 
       - name: Verify package before launch
-        env:
-          PACKAGE_PATH: dist/electris-v${{ needs.identity.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}
-        run: node scripts/package-verify.cjs "$PACKAGE_PATH"
+        run: node scripts/package-verify.cjs "${{ steps.package-path.outputs.path }}"
 
       - name: Allow only the packaged Linux Electron binary to use user namespaces
         if: matrix.platform == 'linux'
@@ -186,23 +198,20 @@ jobs:
           sudo apparmor_parser -r /etc/apparmor.d/electris-electron-release-package-smoke
 
       - name: Run bounded matching-host package smoke
-        env:
-          PACKAGE_PATH: dist/electris-v${{ needs.identity.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}
-        run: node scripts/package-smoke.cjs "$PACKAGE_PATH"
+        run: node scripts/package-smoke.cjs "${{ steps.package-path.outputs.path }}"
 
       - name: Verify package after launch
-        env:
-          PACKAGE_PATH: dist/electris-v${{ needs.identity.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}
-        run: node scripts/package-verify.cjs "$PACKAGE_PATH"
+        run: node scripts/package-verify.cjs "${{ steps.package-path.outputs.path }}"
 
       - name: Archive, extract, and verify final package bytes
-        env:
-          PACKAGE_PATH: dist/electris-v${{ needs.identity.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}
-          RELEASE_OUTPUT: release-work/${{ matrix.platform }}-${{ matrix.arch }}
-          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
-          RELEASE_SHA: ${{ needs.identity.outputs.sha }}
-          RELEASE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: node scripts/release-archive.cjs "--artifact=$PACKAGE_PATH" "--output=$RELEASE_OUTPUT" "--tag=$RELEASE_TAG" "--commit=$RELEASE_SHA" "--run-id=$GITHUB_RUN_ID" "--run-url=$RELEASE_RUN_URL"
+        run: >-
+          node scripts/release-archive.cjs
+          "--artifact=${{ steps.package-path.outputs.path }}"
+          "--output=release-work/${{ matrix.platform }}-${{ matrix.arch }}"
+          "--tag=${{ needs.identity.outputs.tag }}"
+          "--commit=${{ needs.identity.outputs.sha }}"
+          "--run-id=${{ github.run_id }}"
+          "--run-url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Retain target qualification evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

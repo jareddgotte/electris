@@ -38,9 +38,17 @@ Each successful target uploads only its compact JSON qualification record for se
 
 ## Automated preparation
 
-`.github/workflows/release-prepare.yml` runs on `v*` tag pushes and recovery-only manual dispatch. The tag glob is only an event filter; the repository identity script performs strict parsing.
+`.github/workflows/release-prepare.yml` runs on `v*` tag pushes and recovery-only
+manual dispatch. The tag glob is only an event filter; the repository identity script
+performs strict parsing. A separately authorized manual recovery must select the same
+existing tag as both the workflow ref and input so the workflow version, run head, and
+release identity remain aligned:
 
-The workflow:
+```text
+gh workflow run release-prepare.yml --ref v<version> -f tag=v<version>
+```
+
+The workflow rejects a branch ref or a different tag before checkout. The workflow:
 
 1. validates identity and checks for a conflicting release;
 2. runs frozen source validation and the bounded source smoke;
@@ -51,7 +59,13 @@ The workflow:
 
 Only draft assembly receives `contents: write`. Per-tag concurrency does not cancel an in-progress release. Existing assets are downloaded and hash-compared before any missing asset is written; missing assets are uploaded, while unexpected or different bytes stop the run. Raw `dist/` directories are never uploaded.
 
-Preparation contains two inert-by-default, fail-only repository-variable canary hooks hard-coded to `v0.2.0-rc.1`: one exact `linux-x64` target failure and one stop after a single successful expected-asset upload. They cannot select another tag or target and are absent from publication. Their exact temporary set, readback, remove, verify-absent, recovery, and evidence procedure is in [`docs/release-administration.md`](docs/release-administration.md). The procedure is a plan and does not claim that the canary has run or a draft exists.
+Preparation contains two inert-by-default, fail-only repository-variable canary hooks
+hard-coded to `v0.2.0-rc.1`: one exact `linux-x64` target failure and one stop after a
+single successful expected-asset upload. They cannot select another tag or target and
+are absent from publication. The target-failure hook ran for rc.1; the partial-upload
+hook and recovery dispatches did not. Both temporary variables were removed. Their
+exact lifecycle, proven evidence, and failed-tag disposition are in
+[`docs/release-administration.md`](docs/release-administration.md).
 
 Linux's workflow AppArmor profiles grant `userns` only to the exact installed or packaged Electron executable and do not disable Electron's sandbox. All Electron launches use repository-owned bounded smoke harnesses.
 
@@ -94,7 +108,12 @@ Before authorizing publication, manually review the committed notes, prepare run
 
 - A failed required platform leaves no assembled or published release. Rerun transient failures against the same immutable tag.
 - Partial draft assembly first validates every existing expected asset, then adds missing assets and accepts byte-identical assets only. Different bytes or extras require investigation; there is no clobber path.
-- A source, version, note, or package defect requires a corrected pull request and a new SemVer/tag (`rc.2` or a patch). Never move or delete the old tag to hide it.
+- A source, version, note, package, or tagged workflow defect requires a corrected
+  pull request and a new SemVer/tag (`rc.2` or a patch). A newer default-branch
+  workflow cannot repair an old tag: selecting the old tag runs its workflow version,
+  while selecting the newer branch changes the prepare run head rejected by
+  publication. Never move or delete the old tag to hide it. The failed, unpublished
+  `v0.2.0-rc.1` canary is retained under this rule and has no recovery dispatch.
 - Keep bad drafts unpublished. If a release was published, mark it withdrawn/deprecated, retain incident hashes and evidence, and supersede it with a new version. Never silently replace published bytes. Desktop downloads cannot be remotely rolled back.
 - Enable GitHub immutable releases only after an authorized prerelease canary proves matrix failure, partial-upload recovery, duplicate preparation, draft download verification, and publication controls.
 
