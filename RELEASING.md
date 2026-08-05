@@ -59,7 +59,13 @@ The workflow rejects a branch ref or a different tag before checkout. The workfl
 
 Only draft assembly receives `contents: write`. Per-tag concurrency does not cancel an in-progress release. Existing assets are downloaded and hash-compared before any missing asset is written; missing assets are uploaded, while unexpected or different bytes stop the run. Raw `dist/` directories are never uploaded.
 
-Preparation contains two inert-by-default, fail-only repository-variable canary hooks hard-coded to `v0.2.0-rc.1`: one exact `linux-x64` target failure and one stop after a single successful expected-asset upload. They cannot select another tag or target and are absent from publication. Their exact temporary set, readback, remove, verify-absent, recovery, and evidence procedure is in [`docs/release-administration.md`](docs/release-administration.md). The procedure is a plan and does not claim that the canary has run or a draft exists.
+Preparation contains two inert-by-default, fail-only repository-variable canary hooks
+hard-coded to `v0.2.0-rc.1`: one exact `linux-x64` target failure and one stop after a
+single successful expected-asset upload. They cannot select another tag or target and
+are absent from publication. The target-failure hook ran for rc.1; the partial-upload
+hook and recovery dispatches did not. Both temporary variables were removed. Their
+exact lifecycle, proven evidence, and failed-tag disposition are in
+[`docs/release-administration.md`](docs/release-administration.md).
 
 Linux's workflow AppArmor profiles grant `userns` only to the exact installed or packaged Electron executable and do not disable Electron's sandbox. All Electron launches use repository-owned bounded smoke harnesses.
 
