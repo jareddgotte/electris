@@ -408,6 +408,21 @@ describe('temporary exact-tag release canaries', () => {
     })).toThrow(/intentionally failed v0\.2\.0-rc\.1\/linux-x64/)
   })
 
+  it('wires the exact workflow environment names through the target CLI entrypoint', () => {
+    const result = spawnSync(process.execPath, ['scripts/release-canary.cjs'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        ELECTRIS_CANARY_FAIL_TARGET: authorizedCanary.targetFailureValue,
+        RELEASE_TAG: tag,
+        RELEASE_TARGET: authorizedCanary.target
+      }
+    })
+    expect(result.status).toBe(1)
+    expect(result.stderr).toMatch(/intentionally failed v0\.2\.0-rc\.1\/linux-x64/)
+  })
+
   it.each([
     undefined,
     '',
@@ -454,6 +469,48 @@ describe('draft release idempotency', () => {
     expect(() => assertReleaseIdentity({...matching, name: 'wrong-release-name'}, {
       tag, commit, prerelease: true
     })).toThrow(/identity conflicts/)
+  })
+
+  it('wires the exact workflow environment name through the draft-sync CLI entrypoint', () => {
+    const fetchMock = path.join(temporaryRoot, 'mock-github-fetch.cjs')
+    writeFile(fetchMock, `
+      global.fetch = async (url, options = {}) => {
+        const response = (status, body) => ({
+          status,
+          ok: status >= 200 && status < 300,
+          async json() { return body },
+          async text() { return JSON.stringify(body) },
+          async arrayBuffer() { return Buffer.alloc(0) }
+        })
+        if (options.method === 'GET' && String(url).includes('/releases/tags/')) return response(404, {})
+        if (options.method === 'POST' && String(url).endsWith('/releases')) {
+          return response(201, {id: 7, assets: [], ...JSON.parse(options.body)})
+        }
+        if (options.method === 'POST' && String(url).startsWith('https://uploads.github.com/')) {
+          return response(201, {id: 8})
+        }
+        return response(500, {error: 'unexpected mocked request'})
+      }
+    `)
+    const result = spawnSync(process.execPath, [
+      '--require', fetchMock,
+      path.join(process.cwd(), 'scripts', 'release-github.cjs'),
+      'sync-draft',
+      `--tag=${tag}`,
+      `--commit=${commit}`,
+      '--repository=owner/repo',
+      `--assets=${assets}`
+    ], {
+      cwd: temporaryRoot,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        ELECTRIS_CANARY_STOP_AFTER_UPLOAD: authorizedCanary.stopAfterUploadValue,
+        GITHUB_TOKEN: 'test-token'
+      }
+    })
+    expect(result.status).toBe(1)
+    expect(result.stderr).toMatch(/after one successful expected-asset upload/)
   })
 
   it('uploads only missing assets and accepts byte-identical existing assets', async () => {
