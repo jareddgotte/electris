@@ -344,6 +344,53 @@ describe('release workflow security contract', () => {
     expect(workflow).toContain('runner: macos-15-intel\n            platform: darwin\n            arch: x64')
   })
 
+  it('requires a recovery dispatch to select the same tag workflow before checkout', () => {
+    const workflow = fs.readFileSync(path.join(workflowsRoot, 'release-prepare.yml'), 'utf8')
+    const selector = workflow.indexOf('Reject non-tag selectors before running selected repository code')
+    const guard = workflow.indexOf('Require manual recovery to run the selected tag workflow')
+    const checkout = workflow.indexOf('Check out the selected existing tag')
+    const guardBlock = workflow.slice(guard, checkout)
+
+    expect(selector).toBeGreaterThan(-1)
+    expect(guard).toBeGreaterThan(selector)
+    expect(checkout).toBeGreaterThan(guard)
+    expect(guardBlock).toContain("if: github.event_name == 'workflow_dispatch'")
+    expect(guardBlock).toContain('RELEASE_TAG: ${{ inputs.tag }}')
+    expect(guardBlock).toContain('SELECTED_REF: ${{ github.ref }}')
+    expect(guardBlock).toContain("process.env.SELECTED_REF !== 'refs/tags/' + process.env.RELEASE_TAG")
+  })
+
+  it('passes every cross-platform package argument without host-shell expansion', () => {
+    const workflow = fs.readFileSync(path.join(workflowsRoot, 'release-prepare.yml'), 'utf8')
+    const packageJob = workflow.slice(workflow.indexOf('  package:'), workflow.indexOf('  assemble-draft:'))
+    const packagePathArgument = '"${{ steps.package-path.outputs.path }}"'
+    const packageCommands = packageJob.split('\n').map((line) => line.trim())
+        .filter((line) => /^run: node scripts\/package-(?:verify|smoke)\.cjs/.test(line))
+    const archiveBlock = packageJob.slice(
+        packageJob.indexOf('- name: Archive, extract, and verify final package bytes'),
+        packageJob.indexOf('- name: Retain target qualification evidence'))
+    const archiveArguments = [
+      '"--artifact=${{ steps.package-path.outputs.path }}"',
+      '"--output=release-work/${{ matrix.platform }}-${{ matrix.arch }}"',
+      '"--tag=${{ needs.identity.outputs.tag }}"',
+      '"--commit=${{ needs.identity.outputs.sha }}"',
+      '"--run-id=${{ github.run_id }}"',
+      '"--run-url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"'
+    ]
+
+    expect(packageJob).not.toMatch(
+        /\$(?:PACKAGE_PATH|RELEASE_OUTPUT|RELEASE_TAG|RELEASE_SHA|GITHUB_RUN_ID|RELEASE_RUN_URL)\b/)
+    expect(packageJob).toContain('id: package-path')
+    expect(packageJob.split(packagePathArgument)).toHaveLength(4)
+    expect(packageCommands).toEqual([
+      `run: node scripts/package-verify.cjs ${packagePathArgument}`,
+      `run: node scripts/package-smoke.cjs ${packagePathArgument}`,
+      `run: node scripts/package-verify.cjs ${packagePathArgument}`
+    ])
+    expect(archiveBlock.split('\n').map((line) => line.trim())
+        .filter((line) => line.startsWith('"--'))).toEqual(archiveArguments)
+  })
+
   it('keeps both temporary canaries inside fail-closed preparation paths', () => {
     const prepare = fs.readFileSync(path.join(workflowsRoot, 'release-prepare.yml'), 'utf8')
     const publish = fs.readFileSync(path.join(workflowsRoot, 'release-publish.yml'), 'utf8')
@@ -592,7 +639,7 @@ describe('draft release idempotency', () => {
     expect(client.calls.some((call) => ['DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
   })
 
-  it('revalidates one successful exact-head prepare run before publishing', async () => {
+  it('accepts exact-head push and recovery runs but rejects newer-master or failed heads', async () => {
     const client = new FakeClient()
     const releaseAssets = fs.readdirSync(assets).sort().map((name, index) => {
       const bytes = fs.readFileSync(path.join(assets, name))
@@ -622,7 +669,15 @@ describe('draft release idempotency', () => {
       prerelease: true,
       make_latest: 'false'
     })
-    client.run = {...client.run, conclusion: 'failure'}
+    client.run = {...client.run, event: 'workflow_dispatch'}
+    await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .resolves.toMatchObject({draft: false, prerelease: true, make_latest: 'false'})
+
+    client.run = {...client.run, head_sha: 'b'.repeat(40)}
+    await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .rejects.toThrow(/not a successful allowed run/)
+
+    client.run = {...client.run, head_sha: commit, conclusion: 'failure'}
     await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
       .rejects.toThrow(/not a successful allowed run/)
   })

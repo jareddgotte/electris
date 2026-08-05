@@ -38,9 +38,17 @@ Each successful target uploads only its compact JSON qualification record for se
 
 ## Automated preparation
 
-`.github/workflows/release-prepare.yml` runs on `v*` tag pushes and recovery-only manual dispatch. The tag glob is only an event filter; the repository identity script performs strict parsing.
+`.github/workflows/release-prepare.yml` runs on `v*` tag pushes and recovery-only
+manual dispatch. The tag glob is only an event filter; the repository identity script
+performs strict parsing. A separately authorized manual recovery must select the same
+existing tag as both the workflow ref and input so the workflow version, run head, and
+release identity remain aligned:
 
-The workflow:
+```text
+gh workflow run release-prepare.yml --ref v<version> -f tag=v<version>
+```
+
+The workflow rejects a branch ref or a different tag before checkout. The workflow:
 
 1. validates identity and checks for a conflicting release;
 2. runs frozen source validation and the bounded source smoke;
@@ -94,7 +102,12 @@ Before authorizing publication, manually review the committed notes, prepare run
 
 - A failed required platform leaves no assembled or published release. Rerun transient failures against the same immutable tag.
 - Partial draft assembly first validates every existing expected asset, then adds missing assets and accepts byte-identical assets only. Different bytes or extras require investigation; there is no clobber path.
-- A source, version, note, or package defect requires a corrected pull request and a new SemVer/tag (`rc.2` or a patch). Never move or delete the old tag to hide it.
+- A source, version, note, package, or tagged workflow defect requires a corrected
+  pull request and a new SemVer/tag (`rc.2` or a patch). A newer default-branch
+  workflow cannot repair an old tag: selecting the old tag runs its workflow version,
+  while selecting the newer branch changes the prepare run head rejected by
+  publication. Never move or delete the old tag to hide it. The failed, unpublished
+  `v0.2.0-rc.1` canary is retained under this rule and has no recovery dispatch.
 - Keep bad drafts unpublished. If a release was published, mark it withdrawn/deprecated, retain incident hashes and evidence, and supersede it with a new version. Never silently replace published bytes. Desktop downloads cannot be remotely rolled back.
 - Enable GitHub immutable releases only after an authorized prerelease canary proves matrix failure, partial-upload recovery, duplicate preparation, draft download verification, and publication controls.
 

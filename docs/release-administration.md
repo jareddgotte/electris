@@ -16,6 +16,14 @@ Fork, pull-request, comment, and branch workflows must remain unable to enter ei
 
 ## Canary and recovery proof
 
+The first exact-tag target-failure stage ran for `v0.2.0-rc.1`. Linux failed at the
+authorized canary hook, and Windows independently exposed unsafe PowerShell path
+expansion in the tagged prepare workflow before package smoke or archival. Both
+temporary variables were removed, assembly was skipped, and no rc.1 Release or public
+asset set exists. The immutable rc.1 tag remains failed, unpublished canary evidence
+and has no recovery dispatch; [`../RELEASING.md`](../RELEASING.md) requires a corrected
+workflow in a new separately authorized SemVer/tag.
+
 The temporary hooks are hard-coded for only `v0.2.0-rc.1`. They read two
 repository variables, which are not credentials or secrets:
 
@@ -28,10 +36,24 @@ Absent, malformed, or other values, tags, and targets are inert. Changing the ta
 target, or behavior requires a reviewed code change; these variables cannot select a
 new one. Neither hook is read by the publication workflow.
 
-The following is the exact variable lifecycle for a separately authorized canary.
-It is an operator plan only; it does not indicate that a tag, workflow run, draft, or
-release exists. Run each GitHub CLI block from an authenticated administrator shell,
-and do not overlap prepare runs for the tag.
+Every separately authorized manual prepare recovery for a future tag must select that
+same existing tag as both the workflow ref and input:
+
+```bash
+tag=v<version>
+gh workflow run release-prepare.yml --repo jareddgotte/electris --ref "$tag" -f tag="$tag"
+```
+
+This ensures the run uses the workflow version contained in the tag and preserves the
+exact-head publication check. The guard rejects a branch ref or a different tag.
+Omitting `--ref` is not a recovery because GitHub CLI selects the default-branch
+workflow. Do not invoke `v0.2.0-rc.1`; its immutable workflow predates the guard and
+contains the Windows defect.
+
+The following blocks record the variable lifecycle that governed the authorized rc.1
+target-failure stage. They are retained as audit procedure, not permission to repeat
+the failed tag. Run no command below without separate authorization, and do not
+overlap prepare runs for a tag.
 
 First define a fail-closed absence check and verify that both variables are absent:
 
@@ -70,42 +92,25 @@ gh variable delete "$fail_variable" --repo "$repo"
 verify_canary_variables_absent
 ```
 
-Only after reviewing that failure may a separately authorized recovery dispatch use
-the bounded partial-draft hook:
+The original plan next called for the bounded partial-draft hook and two recovery
+dispatches. They were not run. Do not set either canary variable or dispatch
+preparation for rc.1: its tagged workflow is defective, while a newer default-branch
+workflow would produce a prepare head rejected by the preserved publication check.
+Retargeting a canary requires a reviewed code change and separate operator
+authorization for a new tag.
 
-```bash
-gh variable set "$upload_variable" --repo "$repo" --body 'v0.2.0-rc.1:after-one-upload'
-test "$(gh variable get "$upload_variable" --repo "$repo")" = 'v0.2.0-rc.1:after-one-upload'
-```
-
-After that prepare run stops (or after any unexpected interruption), remove the
-variable immediately and verify both names absent before the idempotent recovery
-retry:
-
-```bash
-gh variable delete "$upload_variable" --repo "$repo"
-verify_canary_variables_absent
-```
-
-The tag push and both recovery dispatches remain separate, explicitly authorized
-operations; the commands above do not authorize them. Never leave either variable in
-place while waiting for review or authorization.
-
-Retain the following recovery evidence without claiming more than the logs and API
-state prove:
+Retain only the rc.1 evidence that the logs and API state prove:
 
 - repository-variable audit/readback and the successful post-removal absence checks;
-- the exact tag, commit, run URL, and `linux-x64` intentional failure log, with all
-  target job conclusions, the assembly job skipped, and no draft created by that run;
-- every matching-host bounded-smoke and target artifact result from the later complete
-  matrix run;
-- the partial run's intentional stop log, showing exactly one successful expected
-  asset upload and an unpublished draft containing that asset only;
-- asset name, size, downloaded SHA-256, and draft status before recovery;
-- recovery logs showing the byte-identical asset accepted and only missing expected
-  assets uploaded, followed by exact manifest/checksum verification; and
-- an idempotent retry with no uploads, plus API/audit evidence that preparation made
-  no publish, delete, replace, overwrite, or unexpected-asset mutation request.
+- the exact tag, commit, run URL, and `linux-x64` intentional failure log;
+- the independent Windows pre-launch verification failure and skipped Windows archive;
+- every target job conclusion, the skipped assembly job, and the absence of an rc.1
+  draft, Release, or public asset set; and
+- the immutable annotated rc.1 tag identity.
+
+Do not claim a complete matrix, partial-upload stop, draft recovery, idempotent retry,
+or publication proof for rc.1. A future separately authorized canary must collect all
+of that evidence before immutable releases can be enabled.
 
 A byte or size mismatch, duplicate, or extra asset is an investigation stop. Do not
 remove, rename, or replace it to make recovery pass. Keep the draft unpublished and
