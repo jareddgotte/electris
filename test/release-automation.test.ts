@@ -982,6 +982,43 @@ describe('draft release idempotency', () => {
       .rejects.toThrow(/not a successful allowed run/)
   })
 
+  it('ignores asynchronous GitHub digest enrichment after verifying exact asset bytes', async () => {
+    const client = new FakeClient()
+    const releaseAssets = fs.readdirSync(assets).sort().map((name, index) => {
+      const bytes = fs.readFileSync(path.join(assets, name))
+      const url = `asset://publish-digest-${index}`
+      client.bytes.set(url, bytes)
+      return {id: 20 + index, name, size: bytes.length, url, digest: null}
+    })
+    client.release = {
+      id: 7,
+      tag_name: tag,
+      name: tag,
+      target_commitish: commit,
+      prerelease: true,
+      draft: true,
+      body: '# Candidate\n',
+      assets: releaseAssets
+    }
+    client.run = {
+      head_sha: commit,
+      conclusion: 'success',
+      event: 'push',
+      path: '.github/workflows/release-prepare.yml',
+      html_url: 'https://github.example/runs/123'
+    }
+    client.beforeList = (requestNumber, fake) => {
+      if (requestNumber === 2) {
+        for (const asset of fake.releases[0].assets) asset.digest = `sha256:${'a'.repeat(64)}`
+      }
+    }
+
+    await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .resolves.toMatchObject({draft: false, prerelease: true, make_latest: 'false'})
+    expect(client.calls.filter((call) => call.method === 'PATCH').map((call) => call.url))
+      .toEqual(['/repos/owner/repo/releases/7'])
+  })
+
   it('rechecks uniqueness after publication verification and never publishes a raced duplicate', async () => {
     const client = new FakeClient()
     const releaseAssets = fs.readdirSync(assets).sort().map((name, index) => {

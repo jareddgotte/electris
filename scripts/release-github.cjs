@@ -252,7 +252,7 @@ async function publishDraft(options, operations = {}) {
   assertReleaseIdentity(release, identity, notes)
   const boundId = releaseId(release)
   const verifiedAssetInventory = JSON.stringify([...mapAssets(release.assets).values()]
-      .map(({id, name, size, url, digest}) => ({id, name, size, url, digest}))
+      .map(({id, name, size, url}) => ({id, name, size, url}))
       .sort((left, right) => left.name.localeCompare(right.name)))
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'electris-publish-verify-'))
   try {
@@ -280,7 +280,7 @@ async function publishDraft(options, operations = {}) {
   const current = await findBoundRelease(client, options.repository, identity.tag, boundId)
   assertReleaseIdentity(current, identity, notes)
   const currentAssetInventory = JSON.stringify([...mapAssets(current.assets).values()]
-      .map(({id, name, size, url, digest}) => ({id, name, size, url, digest}))
+      .map(({id, name, size, url}) => ({id, name, size, url}))
       .sort((left, right) => left.name.localeCompare(right.name)))
   if (currentAssetInventory !== verifiedAssetInventory) {
     throw new Error('Draft release assets changed during publication verification')
