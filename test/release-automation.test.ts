@@ -48,6 +48,22 @@ const {
   syncDraft: (options: Record<string, string>, operations: {client: FakeClient}) => Promise<unknown>
 }
 const {
+  assertTargetCanary,
+  authorizedCanary,
+  partialDraftCanaryEnabled,
+  targetFailureCanaryEnabled
+} = require('../scripts/release-canary.cjs') as {
+  assertTargetCanary: (options: {value?: string, tag?: string, target?: string}) => void
+  authorizedCanary: {
+    tag: string
+    target: string
+    targetFailureValue: string
+    stopAfterUploadValue: string
+  }
+  partialDraftCanaryEnabled: (value: string | undefined, tag: string) => boolean
+  targetFailureCanaryEnabled: (value: string | undefined, tag: string, target: string) => boolean
+}
+const {
   releaseArchiveName,
   releaseTargets,
   targetKey
@@ -125,6 +141,7 @@ class FakeClient {
   bytes = new Map<string, Buffer>()
   calls: Array<{method: string, url: string, options: Record<string, any>}> = []
   run: Record<string, unknown> | null = null
+  uploadFailure: Error | null = null
 
   async request(method: string, url: string, options: Record<string, any> = {}) {
     this.calls.push({method, url, options})
@@ -135,7 +152,17 @@ class FakeClient {
       this.release = {id: 7, assets: [], ...options.body}
       return this.release
     }
-    if (method === 'POST' && url.startsWith('https://uploads.github.com/')) return {id: 8}
+    if (method === 'POST' && url.startsWith('https://uploads.github.com/')) {
+      if (this.uploadFailure) throw this.uploadFailure
+      const name = new URL(url).searchParams.get('name')
+      if (!name || !this.release) throw new Error('Upload requires an asset name and release')
+      const body = Buffer.from(options.body)
+      const assetUrl = `asset://uploaded-${this.release.assets.length}`
+      const asset = {id: 8 + this.release.assets.length, name, size: body.length, url: assetUrl}
+      this.bytes.set(assetUrl, body)
+      this.release.assets.push(asset)
+      return asset
+    }
     if (method === 'PATCH' && url.includes('/releases/')) return {...this.release, ...options.body}
     throw new Error(`Unexpected fake request: ${method} ${url}`)
   }
@@ -317,6 +344,26 @@ describe('release workflow security contract', () => {
     expect(workflow).toContain('runner: macos-15-intel\n            platform: darwin\n            arch: x64')
   })
 
+  it('keeps both temporary canaries inside fail-closed preparation paths', () => {
+    const prepare = fs.readFileSync(path.join(workflowsRoot, 'release-prepare.yml'), 'utf8')
+    const publish = fs.readFileSync(path.join(workflowsRoot, 'release-publish.yml'), 'utf8')
+    const packageStart = prepare.indexOf('  package:')
+    const targetHook = prepare.indexOf('Apply exact-tag selected-target failure canary')
+    const packageBuild = prepare.indexOf('Build package on its native host')
+    const assembleStart = prepare.indexOf('  assemble-draft:')
+    const uploadHook = prepare.indexOf('ELECTRIS_CANARY_STOP_AFTER_UPLOAD:')
+
+    expect(packageStart).toBeGreaterThan(-1)
+    expect(targetHook).toBeGreaterThan(packageStart)
+    expect(packageBuild).toBeGreaterThan(targetHook)
+    expect(assembleStart).toBeGreaterThan(packageBuild)
+    expect(prepare.slice(assembleStart)).toContain('needs: [identity, package]')
+    expect(uploadHook).toBeGreaterThan(assembleStart)
+    expect(prepare).toContain('ELECTRIS_CANARY_FAIL_TARGET: ${{ vars.ELECTRIS_CANARY_FAIL_TARGET }}')
+    expect(prepare).toContain('ELECTRIS_CANARY_STOP_AFTER_UPLOAD: ${{ vars.ELECTRIS_CANARY_STOP_AFTER_UPLOAD }}')
+    expect(publish).not.toMatch(/ELECTRIS_CANARY_|vars\./)
+  })
+
   it('makes publication dispatch-only, environment-gated, and rebuild-free', () => {
     const workflow = fs.readFileSync(path.join(workflowsRoot, 'release-publish.yml'), 'utf8')
     expect(workflow).toContain('environment: release-publish')
@@ -325,6 +372,71 @@ describe('release workflow security contract', () => {
     expect(workflow).not.toMatch(/npm ci|package:host|package:target|release-archive|release-assets/)
     expect(workflow.match(/contents: write/g)).toHaveLength(1)
     expect(workflow).toContain('actions: read')
+  })
+})
+
+describe('temporary exact-tag release canaries', () => {
+  it('fixes the reviewed authorization to one tag, target, and value pair', () => {
+    expect(authorizedCanary).toEqual({
+      tag: 'v0.2.0-rc.1',
+      target: 'linux-x64',
+      targetFailureValue: 'v0.2.0-rc.1:linux-x64',
+      stopAfterUploadValue: 'v0.2.0-rc.1:after-one-upload'
+    })
+  })
+
+  it.each([
+    undefined,
+    '',
+    'true',
+    'v0.2.0-rc.1',
+    'v0.2.0-rc.1:win32-x64',
+    'v0.2.0-rc.1:linux-x64:extra',
+    'v0.2.0-rc.2:linux-x64'
+  ])('leaves absent, malformed, wrong-target, wrong-tag, and unrelated target values inert: %s', (value) => {
+    expect(targetFailureCanaryEnabled(value, tag, 'linux-x64')).toBe(false)
+  })
+
+  it('fails only the exact authorized tag and reviewed target tuple', () => {
+    expect(targetFailureCanaryEnabled(authorizedCanary.targetFailureValue, tag, 'linux-x64')).toBe(true)
+    expect(targetFailureCanaryEnabled(authorizedCanary.targetFailureValue, 'v0.2.0-rc.2', 'linux-x64')).toBe(false)
+    expect(targetFailureCanaryEnabled(authorizedCanary.targetFailureValue, tag, 'win32-x64')).toBe(false)
+    expect(() => assertTargetCanary({
+      value: authorizedCanary.targetFailureValue,
+      tag,
+      target: 'linux-x64'
+    })).toThrow(/intentionally failed v0\.2\.0-rc\.1\/linux-x64/)
+  })
+
+  it('wires the exact workflow environment names through the target CLI entrypoint', () => {
+    const result = spawnSync(process.execPath, ['scripts/release-canary.cjs'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        ELECTRIS_CANARY_FAIL_TARGET: authorizedCanary.targetFailureValue,
+        RELEASE_TAG: tag,
+        RELEASE_TARGET: authorizedCanary.target
+      }
+    })
+    expect(result.status).toBe(1)
+    expect(result.stderr).toMatch(/intentionally failed v0\.2\.0-rc\.1\/linux-x64/)
+  })
+
+  it.each([
+    undefined,
+    '',
+    'true',
+    'v0.2.0-rc.1',
+    'v0.2.0-rc.1:after-two-uploads',
+    'v0.2.0-rc.2:after-one-upload'
+  ])('leaves absent, malformed, wrong-tag, and unrelated upload values inert: %s', (value) => {
+    expect(partialDraftCanaryEnabled(value, tag)).toBe(false)
+  })
+
+  it('enables partial-draft failure only for the exact authorized tag and value', () => {
+    expect(partialDraftCanaryEnabled(authorizedCanary.stopAfterUploadValue, tag)).toBe(true)
+    expect(partialDraftCanaryEnabled(authorizedCanary.stopAfterUploadValue, 'v0.2.0-rc.2')).toBe(false)
   })
 })
 
@@ -359,6 +471,48 @@ describe('draft release idempotency', () => {
     })).toThrow(/identity conflicts/)
   })
 
+  it('wires the exact workflow environment name through the draft-sync CLI entrypoint', () => {
+    const fetchMock = path.join(temporaryRoot, 'mock-github-fetch.cjs')
+    writeFile(fetchMock, `
+      global.fetch = async (url, options = {}) => {
+        const response = (status, body) => ({
+          status,
+          ok: status >= 200 && status < 300,
+          async json() { return body },
+          async text() { return JSON.stringify(body) },
+          async arrayBuffer() { return Buffer.alloc(0) }
+        })
+        if (options.method === 'GET' && String(url).includes('/releases/tags/')) return response(404, {})
+        if (options.method === 'POST' && String(url).endsWith('/releases')) {
+          return response(201, {id: 7, assets: [], ...JSON.parse(options.body)})
+        }
+        if (options.method === 'POST' && String(url).startsWith('https://uploads.github.com/')) {
+          return response(201, {id: 8})
+        }
+        return response(500, {error: 'unexpected mocked request'})
+      }
+    `)
+    const result = spawnSync(process.execPath, [
+      '--require', fetchMock,
+      path.join(process.cwd(), 'scripts', 'release-github.cjs'),
+      'sync-draft',
+      `--tag=${tag}`,
+      `--commit=${commit}`,
+      '--repository=owner/repo',
+      `--assets=${assets}`
+    ], {
+      cwd: temporaryRoot,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        ELECTRIS_CANARY_STOP_AFTER_UPLOAD: authorizedCanary.stopAfterUploadValue,
+        GITHUB_TOKEN: 'test-token'
+      }
+    })
+    expect(result.status).toBe(1)
+    expect(result.stderr).toMatch(/after one successful expected-asset upload/)
+  })
+
   it('uploads only missing assets and accepts byte-identical existing assets', async () => {
     const client = new FakeClient()
     const firstName = fs.readdirSync(assets).sort()[0]
@@ -378,6 +532,64 @@ describe('draft release idempotency', () => {
     await syncDraft({tag, commit, repository: 'owner/repo', assets, sourceRoot: temporaryRoot}, {client})
     const uploads = client.calls.filter((call) => call.method === 'POST' && call.url.startsWith('https://uploads.github.com/'))
     expect(uploads).toHaveLength(fs.readdirSync(assets).length - 1)
+    expect(uploads.some((call) => new URL(call.url).searchParams.get('name') === firstName)).toBe(false)
+    expect(client.calls.some((call) => ['DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+  })
+
+  it('does not report the bounded stop before an expected upload succeeds', async () => {
+    const client = new FakeClient()
+    client.uploadFailure = new Error('simulated expected-asset upload failure')
+    await expect(syncDraft({
+      tag,
+      commit,
+      repository: 'owner/repo',
+      assets,
+      sourceRoot: temporaryRoot,
+      canaryStopAfterUpload: authorizedCanary.stopAfterUploadValue
+    }, {client})).rejects.toThrow('simulated expected-asset upload failure')
+    expect(client.release).toMatchObject({draft: true, assets: []})
+    expect(client.calls.some((call) => ['DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+  })
+
+  it('stops after one successful expected upload, then retries without replacing it', async () => {
+    const client = new FakeClient()
+    const expectedNames = fs.readdirSync(assets).sort()
+    await expect(syncDraft({
+      tag,
+      commit,
+      repository: 'owner/repo',
+      assets,
+      sourceRoot: temporaryRoot,
+      canaryStopAfterUpload: authorizedCanary.stopAfterUploadValue
+    }, {client})).rejects.toThrow(/after one successful expected-asset upload/)
+
+    expect(client.release).toMatchObject({draft: true, prerelease: true})
+    expect(client.release?.assets).toHaveLength(1)
+    expect(client.release?.assets[0].name).toBe(expectedNames[0])
+    expect(client.bytes.get(client.release?.assets[0].url))
+      .toEqual(fs.readFileSync(path.join(assets, expectedNames[0])))
+    expect(client.calls.some((call) => ['DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+
+    await syncDraft({tag, commit, repository: 'owner/repo', assets, sourceRoot: temporaryRoot}, {client})
+    expect(client.release?.assets.map((asset: ApiAsset) => asset.name).sort()).toEqual(expectedNames)
+    const uploadsAfterRecovery = client.calls
+        .filter((call) => call.method === 'POST' && call.url.startsWith('https://uploads.github.com/'))
+    expect(uploadsAfterRecovery).toHaveLength(expectedNames.length)
+    expect(uploadsAfterRecovery.filter((call) =>
+      new URL(call.url).searchParams.get('name') === expectedNames[0])).toHaveLength(1)
+
+    await syncDraft({
+      tag,
+      commit,
+      repository: 'owner/repo',
+      assets,
+      sourceRoot: temporaryRoot,
+      canaryStopAfterUpload: authorizedCanary.stopAfterUploadValue
+    }, {client})
+    const uploadsAfterIdempotentRetry = client.calls
+        .filter((call) => call.method === 'POST' && call.url.startsWith('https://uploads.github.com/'))
+    expect(uploadsAfterIdempotentRetry).toHaveLength(expectedNames.length)
+    expect(client.calls.some((call) => ['DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
   })
 
   it('revalidates one successful exact-head prepare run before publishing', async () => {
@@ -415,7 +627,7 @@ describe('draft release idempotency', () => {
       .rejects.toThrow(/not a successful allowed run/)
   })
 
-  it('rejects different bytes and unexpected existing assets rather than clobbering', async () => {
+  it('rejects different bytes and unexpected existing assets without any write or clobber request', async () => {
     const client = new FakeClient()
     const basename = fs.readdirSync(assets).sort()[0]
     client.release = {
@@ -429,11 +641,28 @@ describe('draft release idempotency', () => {
       assets: [{name: basename, size: fs.statSync(path.join(assets, basename)).size, url: 'asset://different'}]
     }
     client.bytes.set('asset://different', Buffer.alloc(fs.statSync(path.join(assets, basename)).size, 1))
-    await expect(syncDraft({tag, commit, repository: 'owner/repo', assets, sourceRoot: temporaryRoot}, {client}))
-      .rejects.toThrow(/bytes differ/)
+    await expect(syncDraft({
+      tag,
+      commit,
+      repository: 'owner/repo',
+      assets,
+      sourceRoot: temporaryRoot,
+      canaryStopAfterUpload: authorizedCanary.stopAfterUploadValue
+    }, {client})).rejects.toThrow(/bytes differ/)
+    expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+
+    client.calls = []
     client.release.assets = [{name: 'unexpected.bin', size: 1, url: 'asset://extra'}]
-    await expect(syncDraft({tag, commit, repository: 'owner/repo', assets, sourceRoot: temporaryRoot}, {client}))
-      .rejects.toThrow(/unexpected assets/)
+    await expect(syncDraft({
+      tag,
+      commit,
+      repository: 'owner/repo',
+      assets,
+      sourceRoot: temporaryRoot,
+      canaryStopAfterUpload: authorizedCanary.stopAfterUploadValue
+    }, {client})).rejects.toThrow(/unexpected assets/)
+    expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+    expect(client.release.assets).toEqual([{name: 'unexpected.bin', size: 1, url: 'asset://extra'}])
   })
 })
 
