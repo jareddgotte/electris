@@ -7,7 +7,7 @@ Electris has no current supported release. Historical 2018 assets remain unsuppo
 - An immutable strict-SemVer tag prepares a draft. Ordinary branch pushes, merges, pull requests, forks, comments, and arbitrary SHAs cannot do so.
 - Preparation and publication require separate captain authorization. Publication is a manual dispatch that revalidates and publishes the existing draft without rebuilding it.
 - `package.json#version` is the single editable version source. Use `npm version --no-git-tag-version <version>` so npm mirrors it into both required lockfile fields, then add `docs/releases/v<version>.md` in the same proposal.
-- The next approved channel is `0.2.0-rc.2`, proposed after the failed and unpublished `v0.2.0-rc.1` canary, followed by `0.2.0`. Creating either tag is a separately authorized operation and is not part of release-automation implementation.
+- The failed, unpublished `v0.2.0-rc.1` and `v0.2.0-rc.2` candidates are retained as incident evidence. Any successor version and tag require a separate reviewed proposal and captain authorization; release-automation implementation does not create either.
 - Tags use `vX.Y.Z` or strict SemVer prereleases such as `vX.Y.Z-rc.N`. Build metadata and leading-zero forms are rejected. Existing `v0.1.0` through `v0.1.2` are immutable archives and may never be reused.
 
 The full SemVer remains the tag, package, application, notes, record, artifact, manifest, and GitHub Release identity. Native build-version fields use the numeric `X.Y.Z` core because operating-system metadata restricts that field; it is not an independent release version.
@@ -22,7 +22,7 @@ Before packaging, `npm run release:identity -- --tag=v<version>` requires exact 
 4. `docs/releases/v<version>.md`; and
 5. ancestry from protected `origin/master`.
 
-It also rejects the archival tags. The prepare workflow separately rejects an existing published or conflicting GitHub Release before any package job runs. A recovery dispatch accepts only an already existing tag. No workflow creates, moves, or deletes tags.
+It also rejects the archival tags. Before any package job, a dedicated preflight job searches the authenticated paginated release list and rejects a published, conflicting, or non-unique exact-tag Release. GitHub returns draft releases only to a token with push access, so that job alone carries a job-scoped `contents: write` token and sees existing drafts; it lists releases and performs no write. The workflow default and every identity, source, and package job stay read-only. Preparation has no fresh-dispatch recovery trigger. No workflow creates, moves, or deletes tags.
 
 ## Pre-tag runner qualification
 
@@ -38,36 +38,53 @@ Each successful target uploads only its compact JSON qualification record for se
 
 ## Automated preparation
 
-`.github/workflows/release-prepare.yml` runs on `v*` tag pushes and recovery-only
-manual dispatch. The tag glob is only an event filter; the repository identity script
-performs strict parsing. A separately authorized manual recovery must select the same
-existing tag as both the workflow ref and input so the workflow version, run head, and
-release identity remain aligned:
+`.github/workflows/release-prepare.yml` runs only on `v*` tag pushes. The tag glob is
+only an event filter; the repository identity script performs strict parsing. The
+workflow deliberately has no `workflow_dispatch` trigger: a fresh run rebuilds archive
+and manifest provenance and is not byte-identical recovery.
+
+A transient failure may be retried only by rerunning failed jobs in the **same workflow
+run**, while its retained artifacts are still available:
 
 ```text
-gh workflow run release-prepare.yml --ref v<version> -f tag=v<version>
+run_id=<authorized-prepare-run-id>
+gh run rerun "$run_id" --repo jareddgotte/electris --failed
 ```
 
-The workflow rejects a branch ref or a different tag before checkout. The workflow:
+A rerun attempt keeps `github.run_id`, reuses artifacts from package jobs that already
+succeeded, and reruns failed jobs and their dependents. It must not be replaced by
+`gh workflow run` or another tag event. If the required artifacts have expired or the
+same run cannot be retried safely, stop and use a corrected, separately authorized
+successor version/tag.
 
-1. validates identity and checks for a conflicting release;
+The workflow:
+
+1. validates identity and requires at most one exact-tag Release from the authenticated paginated release list;
 2. runs frozen source validation and the bounded source smoke;
 3. natively packages, verifies, bounded-smokes, verifies again, archives, freshly extracts, and verifies Linux x64, Windows x64, macOS arm64, and macOS x64;
 4. retains all four target archives as short-lived workflow qualification evidence;
 5. assembles the exact public asset set only after every target succeeds; and
-6. creates or idempotently completes a **draft** GitHub Release.
+6. creates or idempotently completes at most one **draft** GitHub Release.
 
-Only draft assembly receives `contents: write`. Per-tag concurrency does not cancel an in-progress release. Existing assets are downloaded and hash-compared before any missing asset is written; missing assets are uploaded, while unexpected or different bytes stop the run. Raw `dist/` directories are never uploaded.
+Only the draft-discovery preflight job and draft assembly receive `contents: write`,
+each job-scoped; the preflight token exists solely so draft releases are visible to
+discovery. Per-tag concurrency does not cancel an in-progress release. Discovery
+includes drafts, requires an exact `tag_name`, and fails on multiple candidates.
+Because offset pagination can duplicate or skip a release when the list changes
+mid-walk, discovery repeats the complete list and acts only after two consecutive
+snapshots agree on the same ordered, duplicate-free release IDs; sustained churn
+fails the operation instead of selecting from an unstable list. After creation,
+synchronization rechecks exact-tag uniqueness and the created release ID before any
+asset upload and again before reporting success. Existing assets are downloaded and
+hash-compared before any missing asset is written; missing assets are uploaded, while
+unexpected or different bytes stop the run. Raw `dist/` directories are never uploaded.
 
-Preparation contains two inert-by-default, fail-only repository-variable canary hooks
-hard-coded to `v0.2.0-rc.2`: one exact `linux-x64` target failure and one stop after a
-single successful expected-asset upload. They cannot select another tag or target,
-cannot delete or replace assets, and are absent from publication. The rc.2 hooks are
-prerequisite code only until tag creation and each canary operation receive separate
-authorization. The rc.1 target-failure hook ran, but its partial-upload hook and
-recovery dispatches did not; both rc.1 temporary variables were removed. The active
-rc.2 procedure, rc.1 evidence, and failed-tag disposition are in
-[`docs/release-administration.md`](docs/release-administration.md).
+Preparation still contains two inert-by-default, fail-only repository-variable canary
+hooks hard-coded to `v0.2.0-rc.2`. Both variables are absent. The rc.2 partial-upload
+and fresh-dispatch incident disproved the old recovery procedure, and the immutable
+rc.2 tag cannot acquire this correction. Do not set either rc.2 value or rerun either
+rc workflow. The preserved rc.1/rc.2 evidence and successor-only operator contract are
+in [`docs/release-administration.md`](docs/release-administration.md).
 
 Linux's workflow AppArmor profiles grant `userns` only to the exact installed or packaged Electron executable and do not disable Electron's sandbox. All Electron launches use repository-owned bounded smoke harnesses.
 
@@ -82,7 +99,7 @@ electris-v<V>-release-manifest.json
 electris-v<V>-SHA256SUMS.txt
 ```
 
-Each archive contains one `electris-v<V>-<platform>-<arch>/` directory. The manifest records exact tag/commit/package/Electron/workflow/target/smoke/signing identity. `SHA256SUMS.txt` is bytewise sorted and covers both public archives and the manifest, but not itself.
+Each archive contains one `electris-v<V>-<platform>-<arch>/` directory. The manifest records exact tag/commit/package/Electron/workflow/target/smoke/signing identity; every target must identify the same prepare `github.run_id`. `SHA256SUMS.txt` is bytewise sorted and covers both public archives and the manifest, but not itself.
 
 The macOS x64 and arm64 ZIPs are qualification-only workflow artifacts while unsigned. They are represented in the manifest but deliberately absent from the GitHub Release asset set, so publishing a draft cannot accidentally expose them. Source maps, source, tests, development dependencies, caches, and secret-like files are forbidden; required project and Electron notices remain in packages.
 
@@ -102,22 +119,17 @@ Signing/notarization must occur before final smoke, archive, manifest, and check
 
 `.github/workflows/release-publish.yml` accepts only an existing tag and an exact `publish <tag>` confirmation. Its sole job uses the protected `release-publish` environment and is the only publication path with `contents: write`.
 
-After environment approval, it revalidates tag/package/lock/note/ancestry identity, downloads every draft asset from GitHub, rejects missing/extra/different assets, verifies manifest and checksums, and publishes without rebuilding or replacing bytes. Prereleases remain prereleases and do not replace the latest stable release; a stable release becomes latest.
+After environment approval, it revalidates tag/package/lock/note/ancestry identity, requires one exact-tag draft from the authenticated paginated release list, binds verification and publication to that release ID, downloads every asset, rejects missing/extra/different assets, and verifies manifest and checksums. It publishes only when the manifest names one successful tag-push prepare run for the exact commit, after a final uniqueness, release-ID, and asset-inventory check. It never rebuilds or replaces bytes. Prereleases remain prereleases and do not replace the latest stable release; a stable release becomes latest.
 
 Before authorizing publication, manually review the committed notes, prepare run, target evidence, exact draft downloads, unsigned warnings, and every readiness gate. After publication, download the public assets, recheck SHA-256, extract/verify, and run the bounded package smoke on each claimed host.
 
 ## Failure recovery and rollback
 
-- A failed required platform leaves no assembled or published release. Rerun transient failures against the same immutable tag.
-- Partial draft assembly first validates every existing expected asset, then adds missing assets and accepts byte-identical assets only. Different bytes or extras require investigation; there is no clobber path.
-- A source, version, note, package, or tagged workflow defect requires a corrected
-  pull request and a new SemVer/tag (`rc.2` or a patch). A newer default-branch
-  workflow cannot repair an old tag: selecting the old tag runs its workflow version,
-  while selecting the newer branch changes the prepare run head rejected by
-  publication. Never move or delete the old tag to hide it. The failed, unpublished
-  `v0.2.0-rc.1` canary is retained under this rule and has no recovery dispatch.
+- A failed required platform leaves no newly assembled asset set. Rerun failed jobs only within that same tag-push workflow run so successful package artifacts and `github.run_id` provenance are reused. Do not start a fresh preparation run as recovery.
+- Partial draft assembly first requires one exact-tag release ID and validates every existing expected asset, then adds missing assets and accepts byte-identical assets only. Different bytes, extras, duplicate candidates, or a changed release ID require investigation; there is no clobber path.
+- A source, version, note, package, tagged workflow defect, expired artifact, or unrecoverable run requires a corrected pull request and a new SemVer/tag. A newer default-branch workflow cannot repair an old tag. Never move or delete an old tag to hide the failure. The failed, unpublished `v0.2.0-rc.1` and duplicate-draft `v0.2.0-rc.2` incidents are retained under this rule and must not be rerun or published.
 - Keep bad drafts unpublished. If a release was published, mark it withdrawn/deprecated, retain incident hashes and evidence, and supersede it with a new version. Never silently replace published bytes. Desktop downloads cannot be remotely rolled back.
-- Enable GitHub immutable releases only after an authorized prerelease canary proves matrix failure, partial-upload recovery, duplicate preparation, draft download verification, and publication controls.
+- Enable GitHub immutable releases only after a separately authorized successor prerelease canary proves matrix failure, same-run partial-upload recovery, exact-tag uniqueness, no-upload retry, draft download verification, and publication controls.
 
 ## Readiness blockers
 
@@ -142,4 +154,4 @@ The release-contract commands are:
 - `npm run release:assemble -- --input=<staging> --output=<release> --tag=<tag> --commit=<sha>`
 - `npm run release:verify-assets -- --dir=<release> --tag=<tag> --commit=<sha>`
 
-`release:github` is workflow plumbing for preflight, idempotent draft synchronization, and publish-only revalidation. It must not be used to bypass captain authorization or protected environments.
+`release:github` is workflow plumbing for paginated exact-tag preflight, same-run byte-idempotent draft synchronization, and publish-only revalidation bound to one release ID. It must not be used to bypass captain authorization or protected environments.

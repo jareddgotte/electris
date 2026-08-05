@@ -4,18 +4,12 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing immutable strict-SemVer tag to prepare again
-        required: true
-        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-prepare-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  group: release-prepare-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -31,26 +25,19 @@ jobs:
     steps:
       - name: Reject non-tag selectors before running selected repository code
         env:
-          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: node -e "if (!/^v(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*))*))?$/.test(process.env.RELEASE_TAG)) throw new Error('Selector must be a strict SemVer tag')"
-
-      - name: Require manual recovery to run the selected tag workflow
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-          SELECTED_REF: ${{ github.ref }}
-        run: node -e "if (process.env.SELECTED_REF !== 'refs/tags/' + process.env.RELEASE_TAG) throw new Error('Recovery dispatch must select the same existing tag ref named by its input')"
 
       - name: Check out the selected existing tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          ref: refs/tags/${{ github.ref_name }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Establish trusted tag ancestry before running selected code
         env:
-          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           tag_sha=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
           test "$(git rev-parse HEAD)" = "$tag_sha"
@@ -64,19 +51,43 @@ jobs:
       - name: Validate tag, package, lockfile, notes, checkout, and master ancestry
         id: identity
         env:
-          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: node scripts/release-identity.cjs "--tag=$RELEASE_TAG"
+
+  preflight:
+    name: Reject a conflicting GitHub Release before packaging
+    needs: identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # GitHub returns draft releases only to a token with push access, so exact-tag
+    # discovery cannot see an existing draft under contents: read and the fail-fast
+    # claim would silently pass. Keep that elevated scope on this discovery-only job,
+    # which lists releases and writes nothing; identity, source, and package jobs stay
+    # read-only, and the workflow default stays read-only.
+    permissions:
+      contents: write
+    steps:
+      - name: Check out validated tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.identity.outputs.tag }}
+          persist-credentials: false
+
+      - name: Use declared Node version
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
 
       - name: Reject a conflicting GitHub Release before packaging
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.identity.outputs.tag }}
-          RELEASE_SHA: ${{ steps.identity.outputs.sha }}
+          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+          RELEASE_SHA: ${{ needs.identity.outputs.sha }}
         run: node scripts/release-github.cjs preflight "--tag=$RELEASE_TAG" "--commit=$RELEASE_SHA" "--repository=$GITHUB_REPOSITORY"
 
   source-validate:
     name: Validate tagged source
-    needs: identity
+    needs: [identity, preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -119,7 +130,7 @@ jobs:
 
   package:
     name: Qualify ${{ matrix.platform }}/${{ matrix.arch }}
-    needs: [identity, source-validate]
+    needs: [identity, preflight, source-validate]
     strategy:
       fail-fast: false
       matrix:
