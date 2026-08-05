@@ -7,7 +7,7 @@ Electris has no current supported release. Historical 2018 assets remain unsuppo
 - An immutable strict-SemVer tag prepares a draft. Ordinary branch pushes, merges, pull requests, forks, comments, and arbitrary SHAs cannot do so.
 - Preparation and publication require separate captain authorization. Publication is a manual dispatch that revalidates and publishes the existing draft without rebuilding it.
 - `package.json#version` is the single editable version source. Use `npm version --no-git-tag-version <version>` so npm mirrors it into both required lockfile fields, then add `docs/releases/v<version>.md` in the same proposal.
-- The next approved channel is `0.2.0-rc.1`, followed by `0.2.0`. Creating either tag is a separately authorized operation and is not part of release-automation implementation.
+- The next approved channel is `0.2.0-rc.2`, proposed after the failed and unpublished `v0.2.0-rc.1` canary, followed by `0.2.0`. Creating either tag is a separately authorized operation and is not part of release-automation implementation.
 - Tags use `vX.Y.Z` or strict SemVer prereleases such as `vX.Y.Z-rc.N`. Build metadata and leading-zero forms are rejected. Existing `v0.1.0` through `v0.1.2` are immutable archives and may never be reused.
 
 The full SemVer remains the tag, package, application, notes, record, artifact, manifest, and GitHub Release identity. Native build-version fields use the numeric `X.Y.Z` core because operating-system metadata restricts that field; it is not an independent release version.

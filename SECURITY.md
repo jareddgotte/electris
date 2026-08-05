@@ -14,7 +14,7 @@ Electris has no current supported release and GitHub private vulnerability repor
 - Strict tag/version identity, native bounded smoke evidence, archives, manifests, checksums, and draft-only publication controls are described in [`RELEASING.md`](RELEASING.md). They do not by themselves authorize or support a release.
 - Initial Linux and Windows portable assets may be unsigned only with truthful trust warnings. Checksums are not signatures or provenance.
 - Unsigned macOS output is qualification-only and withheld from public assets. Public macOS distribution requires approved Developer ID signing, notarization, stapling, Gatekeeper verification, and final matching-host smoke.
-- The rc.1 documentation now records landed dependency remediation, runner-qualification workflow evidence, exact-tag canary/recovery hooks, and the approved release-administration controls; none of those facts create a supported release on their own.
+- The rc.2 documentation now records landed dependency remediation, runner-qualification workflow evidence, exact-tag canary/recovery hooks, and the approved release-administration controls; none of those facts create a supported release on their own. The immutable `v0.2.0-rc.1` tag remains failed, unpublished canary evidence.
 - Focused icon/branding/trademark review remains required before public release.
 
 ## Related guidance
