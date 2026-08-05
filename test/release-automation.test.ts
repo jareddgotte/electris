@@ -85,8 +85,8 @@ interface ReleaseManifest {
 }
 interface ApiAsset {name: string, size: number, url: string}
 
-const tag = 'v0.2.0-rc.1'
-const version = '0.2.0-rc.1'
+const tag = 'v0.2.0-rc.2'
+const version = '0.2.0-rc.2'
 const commit = 'a'.repeat(40)
 
 function hash(content: Buffer | string) {
@@ -178,7 +178,7 @@ describe('release identity contract', () => {
 
   it('accepts stable and approved prerelease strict SemVer tags', () => {
     expect(parseReleaseTag('v0.2.0')).toMatchObject({version: '0.2.0', prerelease: null})
-    expect(parseReleaseTag(tag)).toMatchObject({version, prerelease: 'rc.1'})
+    expect(parseReleaseTag(tag)).toMatchObject({version, prerelease: 'rc.2'})
     expect(parseReleaseTag('v1.0.0-2be')).toMatchObject({version: '1.0.0-2be', prerelease: '2be'})
     expect(nativeBuildVersion(version)).toBe('0.2.0')
   })
@@ -233,8 +233,8 @@ describe('release identity contract', () => {
     writeFile(path.join(temporaryRoot, 'untrusted'), 'side\n')
     git('add', 'untrusted')
     git('commit', '-m', 'side')
-    git('tag', 'v0.2.0-rc.2')
-    expect(() => validateGitIdentity('v0.2.0-rc.2', {
+    git('tag', 'v0.2.0-rc.3')
+    expect(() => validateGitIdentity('v0.2.0-rc.3', {
       sourceRoot: temporaryRoot,
       masterRef: 'refs/heads/master'
     })).toThrow(/merge-base .* failed/)
@@ -425,10 +425,10 @@ describe('release workflow security contract', () => {
 describe('temporary exact-tag release canaries', () => {
   it('fixes the reviewed authorization to one tag, target, and value pair', () => {
     expect(authorizedCanary).toEqual({
-      tag: 'v0.2.0-rc.1',
+      tag: 'v0.2.0-rc.2',
       target: 'linux-x64',
-      targetFailureValue: 'v0.2.0-rc.1:linux-x64',
-      stopAfterUploadValue: 'v0.2.0-rc.1:after-one-upload'
+      targetFailureValue: 'v0.2.0-rc.2:linux-x64',
+      stopAfterUploadValue: 'v0.2.0-rc.2:after-one-upload'
     })
   })
 
@@ -436,23 +436,28 @@ describe('temporary exact-tag release canaries', () => {
     undefined,
     '',
     'true',
-    'v0.2.0-rc.1',
-    'v0.2.0-rc.1:win32-x64',
-    'v0.2.0-rc.1:linux-x64:extra',
-    'v0.2.0-rc.2:linux-x64'
-  ])('leaves absent, malformed, wrong-target, wrong-tag, and unrelated target values inert: %s', (value) => {
-    expect(targetFailureCanaryEnabled(value, tag, 'linux-x64')).toBe(false)
+    'v0.2.0-rc.2',
+    'v0.2.0-rc.1:linux-x64',
+    'v0.2.0-rc.3:linux-x64',
+    'v0.2.0-rc.2:win32-x64',
+    'v0.2.0-rc.2:linux-x64:extra',
+    ' v0.2.0-rc.2:linux-x64',
+    'v0.2.0-rc.2:linux-x64 '
+  ])('leaves absent, malformed, rc.1, other-tag, wrong-target, and near-match target values inert: %s', (value) => {
+    expect(targetFailureCanaryEnabled(value, tag, authorizedCanary.target)).toBe(false)
   })
 
   it('fails only the exact authorized tag and reviewed target tuple', () => {
-    expect(targetFailureCanaryEnabled(authorizedCanary.targetFailureValue, tag, 'linux-x64')).toBe(true)
-    expect(targetFailureCanaryEnabled(authorizedCanary.targetFailureValue, 'v0.2.0-rc.2', 'linux-x64')).toBe(false)
+    expect(targetFailureCanaryEnabled(authorizedCanary.targetFailureValue, tag, authorizedCanary.target)).toBe(true)
+    expect(targetFailureCanaryEnabled(authorizedCanary.targetFailureValue, 'v0.2.0-rc.1', authorizedCanary.target)).toBe(false)
+    expect(targetFailureCanaryEnabled(authorizedCanary.targetFailureValue, 'v0.2.0-rc.3', authorizedCanary.target)).toBe(false)
     expect(targetFailureCanaryEnabled(authorizedCanary.targetFailureValue, tag, 'win32-x64')).toBe(false)
+    expect(partialDraftCanaryEnabled(authorizedCanary.targetFailureValue, tag)).toBe(false)
     expect(() => assertTargetCanary({
       value: authorizedCanary.targetFailureValue,
       tag,
-      target: 'linux-x64'
-    })).toThrow(/intentionally failed v0\.2\.0-rc\.1\/linux-x64/)
+      target: authorizedCanary.target
+    })).toThrow(/intentionally failed v0\.2\.0-rc\.2\/linux-x64/)
   })
 
   it('wires the exact workflow environment names through the target CLI entrypoint', () => {
@@ -467,23 +472,30 @@ describe('temporary exact-tag release canaries', () => {
       }
     })
     expect(result.status).toBe(1)
-    expect(result.stderr).toMatch(/intentionally failed v0\.2\.0-rc\.1\/linux-x64/)
+    expect(result.stderr).toMatch(/intentionally failed v0\.2\.0-rc\.2\/linux-x64/)
   })
 
   it.each([
     undefined,
     '',
     'true',
-    'v0.2.0-rc.1',
-    'v0.2.0-rc.1:after-two-uploads',
-    'v0.2.0-rc.2:after-one-upload'
-  ])('leaves absent, malformed, wrong-tag, and unrelated upload values inert: %s', (value) => {
+    'v0.2.0-rc.2',
+    'v0.2.0-rc.1:after-one-upload',
+    'v0.2.0-rc.3:after-one-upload',
+    'v0.2.0-rc.2:after-two-uploads',
+    'v0.2.0-rc.2:after-one-upload:extra',
+    ' v0.2.0-rc.2:after-one-upload',
+    'v0.2.0-rc.2:after-one-upload '
+  ])('leaves absent, malformed, rc.1, other-tag, and near-match upload values inert: %s', (value) => {
     expect(partialDraftCanaryEnabled(value, tag)).toBe(false)
   })
 
   it('enables partial-draft failure only for the exact authorized tag and value', () => {
     expect(partialDraftCanaryEnabled(authorizedCanary.stopAfterUploadValue, tag)).toBe(true)
-    expect(partialDraftCanaryEnabled(authorizedCanary.stopAfterUploadValue, 'v0.2.0-rc.2')).toBe(false)
+    expect(partialDraftCanaryEnabled(authorizedCanary.stopAfterUploadValue, 'v0.2.0-rc.1')).toBe(false)
+    expect(partialDraftCanaryEnabled(authorizedCanary.stopAfterUploadValue, 'v0.2.0-rc.3')).toBe(false)
+    expect(targetFailureCanaryEnabled(
+        authorizedCanary.stopAfterUploadValue, tag, authorizedCanary.target)).toBe(false)
   })
 })
 
