@@ -64,7 +64,33 @@ function assertReleaseIdentity(release, identity, expectedBody) {
 
 async function findRelease(client, repository, tag) {
   const {owner, repo} = repositoryParts(repository)
-  return client.request('GET', `/repos/${owner}/${repo}/releases/tags/${encodeURIComponent(tag)}`, {allow404: true})
+  const matches = []
+  const perPage = 100
+  for (let page = 1; ; page += 1) {
+    const releases = await client.request(
+        'GET', `/repos/${owner}/${repo}/releases?per_page=${perPage}&page=${page}`)
+    if (!Array.isArray(releases)) throw new Error('GitHub release list response is not an array')
+    matches.push(...releases.filter((release) => release.tag_name === tag))
+    if (matches.length > 1) {
+      throw new Error(`Multiple GitHub Releases exist for exact tag ${tag}: ${matches.map((release) => release.id).join(', ')}`)
+    }
+    if (releases.length < perPage) break
+  }
+  return matches[0] || null
+}
+
+function releaseId(release) {
+  if (!Number.isSafeInteger(release?.id) || release.id <= 0) throw new Error('GitHub Release has an invalid ID')
+  return release.id
+}
+
+async function findBoundRelease(client, repository, tag, expectedId) {
+  const release = await findRelease(client, repository, tag)
+  if (!release) throw new Error(`GitHub Release disappeared for exact tag ${tag}`)
+  if (releaseId(release) !== expectedId) {
+    throw new Error(`GitHub Release ID changed for exact tag ${tag}; expected ${expectedId}, found ${release.id}`)
+  }
+  return release
 }
 
 async function preflight(options, operations = {}) {
@@ -109,6 +135,30 @@ function mapAssets(assets) {
   return mapped
 }
 
+async function validateDraftAssets(client, release, expectedFiles, assetsDirectory) {
+  const existing = mapAssets(release.assets)
+  const extras = [...existing.keys()].filter((name) => !expectedFiles.includes(name))
+  if (extras.length > 0) throw new Error(`Draft release has unexpected assets: ${extras.join(', ')}`)
+
+  // Validate every existing expected asset before writing any missing asset. This
+  // keeps mismatches and extras fail-only even during bounded partial-draft recovery.
+  for (const basename of expectedFiles) {
+    const asset = existing.get(basename)
+    if (!asset) continue
+    const localPath = path.join(assetsDirectory, basename)
+    if (asset.size !== fs.statSync(localPath).size) throw new Error(`Existing draft asset size differs: ${basename}`)
+    const bytes = await downloadAsset(client, asset)
+    const temporary = path.join(os.tmpdir(), `electris-existing-${process.pid}-${basename}`)
+    try {
+      fs.writeFileSync(temporary, bytes)
+      if (sha256(temporary) !== sha256(localPath)) throw new Error(`Existing draft asset bytes differ: ${basename}`)
+    } finally {
+      fs.rmSync(temporary, {force: true})
+    }
+  }
+  return existing
+}
+
 async function syncDraft(options, operations = {}) {
   const parsed = parseReleaseTag(options.tag)
   const identity = {
@@ -123,7 +173,7 @@ async function syncDraft(options, operations = {}) {
   const {owner, repo} = repositoryParts(options.repository)
   let release = await findRelease(client, options.repository, identity.tag)
   if (!release) {
-    release = await client.request('POST', `/repos/${owner}/${repo}/releases`, {body: {
+    const created = await client.request('POST', `/repos/${owner}/${repo}/releases`, {body: {
       tag_name: identity.tag,
       target_commitish: identity.commit,
       name: identity.tag,
@@ -132,39 +182,35 @@ async function syncDraft(options, operations = {}) {
       prerelease: identity.prerelease,
       generate_release_notes: false
     }})
-  } else {
-    assertReleaseIdentity(release, identity, notes)
+    assertReleaseIdentity(created, identity, notes)
+    const createdId = releaseId(created)
+    // GitHub does not make create-by-tag atomic. Re-list drafts and published
+    // releases before uploading so a concurrent same-tag create fails closed.
+    release = await findBoundRelease(client, options.repository, identity.tag, createdId)
   }
+  assertReleaseIdentity(release, identity, notes)
+  const boundId = releaseId(release)
 
   const expectedFiles = fs.readdirSync(options.assets, {withFileTypes: true})
       .filter((entry) => entry.isFile()).map((entry) => entry.name).sort()
-  const existing = mapAssets(release.assets)
-  const extras = [...existing.keys()].filter((name) => !expectedFiles.includes(name))
-  if (extras.length > 0) throw new Error(`Draft release has unexpected assets: ${extras.join(', ')}`)
+  let existing = await validateDraftAssets(client, release, expectedFiles, options.assets)
+  let missing = expectedFiles.filter((name) => !existing.has(name))
 
-  // Validate every existing expected asset before writing any missing asset. This
-  // keeps mismatches and extras fail-only even during the bounded partial-draft proof.
-  for (const basename of expectedFiles) {
-    const asset = existing.get(basename)
-    if (!asset) continue
-    const localPath = path.join(options.assets, basename)
-    if (asset.size !== fs.statSync(localPath).size) throw new Error(`Existing draft asset size differs: ${basename}`)
-    const bytes = await downloadAsset(client, asset)
-    const temporary = path.join(os.tmpdir(), `electris-existing-${process.pid}-${basename}`)
-    try {
-      fs.writeFileSync(temporary, bytes)
-      if (sha256(temporary) !== sha256(localPath)) throw new Error(`Existing draft asset bytes differ: ${basename}`)
-    } finally {
-      fs.rmSync(temporary, {force: true})
-    }
+  if (missing.length > 0) {
+    // Reassert both exact-tag uniqueness and the bound release ID immediately
+    // before asset mutation, then repeat all byte/extras checks on that object.
+    release = await findBoundRelease(client, options.repository, identity.tag, boundId)
+    assertReleaseIdentity(release, identity, notes)
+    existing = await validateDraftAssets(client, release, expectedFiles, options.assets)
+    missing = expectedFiles.filter((name) => !existing.has(name))
   }
 
   const stopAfterOneUpload = partialDraftCanaryEnabled(options.canaryStopAfterUpload, identity.tag)
   let uploads = 0
-  for (const basename of expectedFiles.filter((name) => !existing.has(name))) {
+  for (const basename of missing) {
     const localPath = path.join(options.assets, basename)
     const encodedName = encodeURIComponent(basename)
-    await client.request('POST', `https://uploads.github.com/repos/${owner}/${repo}/releases/${release.id}/assets?name=${encodedName}`, {
+    await client.request('POST', `https://uploads.github.com/repos/${owner}/${repo}/releases/${boundId}/assets?name=${encodedName}`, {
       body: fs.readFileSync(localPath),
       contentType: 'application/octet-stream'
     })
@@ -173,7 +219,12 @@ async function syncDraft(options, operations = {}) {
       throw new Error(`Authorized temporary release canary stopped ${identity.tag} after one successful expected-asset upload`)
     }
   }
-  return release
+
+  // Never report synchronization success if a same-tag release appeared while
+  // bytes were being checked or uploaded.
+  const current = await findBoundRelease(client, options.repository, identity.tag, boundId)
+  assertReleaseIdentity(current, identity, notes)
+  return current
 }
 
 function publicationUpdate(tag) {
@@ -199,6 +250,10 @@ async function publishDraft(options, operations = {}) {
   if (!release) throw new Error(`Draft release does not exist: ${identity.tag}`)
   const notes = fs.readFileSync(releaseNotesPath(identity.tag, options.sourceRoot || root), 'utf8')
   assertReleaseIdentity(release, identity, notes)
+  const boundId = releaseId(release)
+  const verifiedAssetInventory = JSON.stringify([...mapAssets(release.assets).values()]
+      .map(({id, name, size, url, digest}) => ({id, name, size, url, digest}))
+      .sort((left, right) => left.name.localeCompare(right.name)))
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'electris-publish-verify-'))
   try {
     const releaseAssets = mapAssets(release.assets)
@@ -213,7 +268,7 @@ async function publishDraft(options, operations = {}) {
     const runId = [...runIds][0]
     const run = await client.request('GET', `/repos/${owner}/${repo}/actions/runs/${runId}`)
     if (!run || run.head_sha !== identity.commit || run.conclusion !== 'success' ||
-        !['push', 'workflow_dispatch'].includes(run.event) ||
+        run.event !== 'push' ||
         !String(run.path || '').startsWith('.github/workflows/release-prepare.yml') ||
         run.html_url !== [...runUrls][0]) {
       throw new Error('Release manifest prepare run is not a successful allowed run for this exact commit')
@@ -221,7 +276,16 @@ async function publishDraft(options, operations = {}) {
   } finally {
     fs.rmSync(temporary, {recursive: true, force: true})
   }
-  return client.request('PATCH', `/repos/${owner}/${repo}/releases/${release.id}`, {
+
+  const current = await findBoundRelease(client, options.repository, identity.tag, boundId)
+  assertReleaseIdentity(current, identity, notes)
+  const currentAssetInventory = JSON.stringify([...mapAssets(current.assets).values()]
+      .map(({id, name, size, url, digest}) => ({id, name, size, url, digest}))
+      .sort((left, right) => left.name.localeCompare(right.name)))
+  if (currentAssetInventory !== verifiedAssetInventory) {
+    throw new Error('Draft release assets changed during publication verification')
+  }
+  return client.request('PATCH', `/repos/${owner}/${repo}/releases/${boundId}`, {
     body: publicationUpdate(identity.tag)
   })
 }
@@ -265,6 +329,7 @@ if (require.main === module) void main()
 
 module.exports = {
   assertReleaseIdentity,
+  findRelease,
   githubClient,
   preflight,
   publicationUpdate,

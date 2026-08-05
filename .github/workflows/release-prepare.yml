@@ -4,18 +4,12 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing immutable strict-SemVer tag to prepare again
-        required: true
-        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-prepare-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  group: release-prepare-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -31,26 +25,19 @@ jobs:
     steps:
       - name: Reject non-tag selectors before running selected repository code
         env:
-          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: node -e "if (!/^v(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*))*))?$/.test(process.env.RELEASE_TAG)) throw new Error('Selector must be a strict SemVer tag')"
-
-      - name: Require manual recovery to run the selected tag workflow
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-          SELECTED_REF: ${{ github.ref }}
-        run: node -e "if (process.env.SELECTED_REF !== 'refs/tags/' + process.env.RELEASE_TAG) throw new Error('Recovery dispatch must select the same existing tag ref named by its input')"
 
       - name: Check out the selected existing tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          ref: refs/tags/${{ github.ref_name }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Establish trusted tag ancestry before running selected code
         env:
-          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           tag_sha=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
           test "$(git rev-parse HEAD)" = "$tag_sha"
@@ -64,7 +51,7 @@ jobs:
       - name: Validate tag, package, lockfile, notes, checkout, and master ancestry
         id: identity
         env:
-          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: node scripts/release-identity.cjs "--tag=$RELEASE_TAG"
 
       - name: Reject a conflicting GitHub Release before packaging

@@ -64,11 +64,15 @@ const {
   targetFailureCanaryEnabled: (value: string | undefined, tag: string, target: string) => boolean
 }
 const {
+  checksumsName,
   releaseArchiveName,
+  releaseManifestName,
   releaseTargets,
   targetKey
 } = require('../scripts/release-config.cjs') as {
+  checksumsName: (version: string) => string
   releaseArchiveName: (version: string, target: ReleaseTarget) => string
+  releaseManifestName: (version: string) => string
   releaseTargets: ReleaseTarget[]
   targetKey: (platform: string, arch: string) => string
 }
@@ -81,7 +85,7 @@ interface ReleaseTarget {
   public: boolean
 }
 interface ReleaseManifest {
-  targets: Array<{target: {key: string}}>
+  targets: Array<{target: {key: string}, workflow: {runId: string, runUrl: string}}>
 }
 interface ApiAsset {name: string, size: number, url: string}
 
@@ -108,7 +112,7 @@ function writeIdentity(root: string, values: {packageVersion?: string, topLock?:
   if (values.note !== false) writeFile(path.join(root, 'docs', 'releases', `${tag}.md`), '# Candidate\n')
 }
 
-function createStaging(root: string) {
+function createStaging(root: string, runId = '123') {
   const staging = path.join(root, 'staging')
   for (const target of releaseTargets) {
     const key = targetKey(target.platform, target.arch)
@@ -122,7 +126,7 @@ function createStaging(root: string) {
       commit,
       packageVersion: version,
       electronVersion: '43.2.0',
-      workflow: {runId: '123', runUrl: 'https://github.example/runs/123'},
+      workflow: {runId, runUrl: `https://github.example/runs/${runId}`},
       target: {platform: target.platform, arch: target.arch, key, public: target.public},
       archive: {basename, bytes: bytes.length, sha256: hash(bytes)},
       smoke: {passed: true, evidence: 'bounded matching-host smoke passed'},
@@ -137,33 +141,64 @@ function createStaging(root: string) {
 }
 
 class FakeClient {
-  release: Record<string, any> | null = null
+  releases: Array<Record<string, any>> = []
+  releasePages: Map<number, Array<Record<string, any>>> | null = null
+  tagLookupRelease: Record<string, any> | null = null
   bytes = new Map<string, Buffer>()
   calls: Array<{method: string, url: string, options: Record<string, any>}> = []
   run: Record<string, unknown> | null = null
   uploadFailure: Error | null = null
+  afterCreate: ((created: Record<string, any>, client: FakeClient) => void) | null = null
+  beforeList: ((requestNumber: number, client: FakeClient) => void) | null = null
+  listRequests = 0
+
+  get release() {
+    return this.releases[0] || null
+  }
+
+  set release(value: Record<string, any> | null) {
+    this.releases = value ? [value] : []
+  }
 
   async request(method: string, url: string, options: Record<string, any> = {}) {
     this.calls.push({method, url, options})
-    if (method === 'GET' && url.includes('/releases/tags/')) return this.release
+    if (method === 'GET' && url.includes('/releases/tags/')) return this.tagLookupRelease
+    if (method === 'GET' && url.includes('/releases?')) {
+      this.listRequests += 1
+      this.beforeList?.(this.listRequests, this)
+      const parsed = new URL(url, 'https://api.github.example')
+      const page = Number(parsed.searchParams.get('page'))
+      const perPage = Number(parsed.searchParams.get('per_page'))
+      if (this.releasePages) return this.releasePages.get(page) || []
+      return this.releases.slice((page - 1) * perPage, page * perPage)
+    }
     if (method === 'GET' && url.startsWith('asset://')) return this.bytes.get(url)
     if (method === 'GET' && url.includes('/actions/runs/')) return this.run
     if (method === 'POST' && url.endsWith('/releases')) {
-      this.release = {id: 7, assets: [], ...options.body}
-      return this.release
+      const created = {id: 7, assets: [], ...options.body}
+      this.releases.push(created)
+      this.afterCreate?.(created, this)
+      return created
     }
     if (method === 'POST' && url.startsWith('https://uploads.github.com/')) {
       if (this.uploadFailure) throw this.uploadFailure
       const name = new URL(url).searchParams.get('name')
-      if (!name || !this.release) throw new Error('Upload requires an asset name and release')
+      const id = Number(url.match(/\/releases\/(\d+)\/assets/)?.[1])
+      const release = this.releases.find((candidate) => candidate.id === id)
+      if (!name || !release) throw new Error('Upload requires an asset name and bound release ID')
       const body = Buffer.from(options.body)
-      const assetUrl = `asset://uploaded-${this.release.assets.length}`
-      const asset = {id: 8 + this.release.assets.length, name, size: body.length, url: assetUrl}
+      const assetUrl = `asset://uploaded-${release.assets.length}`
+      const asset = {id: 8 + release.assets.length, name, size: body.length, url: assetUrl}
       this.bytes.set(assetUrl, body)
-      this.release.assets.push(asset)
+      release.assets.push(asset)
       return asset
     }
-    if (method === 'PATCH' && url.includes('/releases/')) return {...this.release, ...options.body}
+    if (method === 'PATCH' && url.includes('/releases/')) {
+      const id = Number(url.match(/\/releases\/(\d+)/)?.[1])
+      const release = this.releases.find((candidate) => candidate.id === id)
+      if (!release) throw new Error('Publish requires the bound release ID')
+      return {...release, ...options.body}
+    }
     throw new Error(`Unexpected fake request: ${method} ${url}`)
   }
 }
@@ -332,10 +367,10 @@ describe('release workflow security contract', () => {
     }
   })
 
-  it('limits preparation to tags/recovery and isolates its only contents write', () => {
+  it('limits preparation to tag pushes and isolates its only contents write', () => {
     const workflow = fs.readFileSync(path.join(workflowsRoot, 'release-prepare.yml'), 'utf8')
     expect(workflow).toContain("- 'v*'")
-    expect(workflow).toContain('workflow_dispatch:')
+    expect(workflow).not.toContain('workflow_dispatch:')
     expect(workflow).not.toMatch(/pull_request(?:_target)?:|issue_comment:|branches:/)
     expect(workflow.match(/contents: write/g)).toHaveLength(1)
     expect(workflow).not.toContain('id-token: write')
@@ -344,20 +379,14 @@ describe('release workflow security contract', () => {
     expect(workflow).toContain('runner: macos-15-intel\n            platform: darwin\n            arch: x64')
   })
 
-  it('requires a recovery dispatch to select the same tag workflow before checkout', () => {
+  it('rejects unsafe fresh-dispatch recovery and keeps reruns on one workflow run identity', () => {
     const workflow = fs.readFileSync(path.join(workflowsRoot, 'release-prepare.yml'), 'utf8')
-    const selector = workflow.indexOf('Reject non-tag selectors before running selected repository code')
-    const guard = workflow.indexOf('Require manual recovery to run the selected tag workflow')
-    const checkout = workflow.indexOf('Check out the selected existing tag')
-    const guardBlock = workflow.slice(guard, checkout)
 
-    expect(selector).toBeGreaterThan(-1)
-    expect(guard).toBeGreaterThan(selector)
-    expect(checkout).toBeGreaterThan(guard)
-    expect(guardBlock).toContain("if: github.event_name == 'workflow_dispatch'")
-    expect(guardBlock).toContain('RELEASE_TAG: ${{ inputs.tag }}')
-    expect(guardBlock).toContain('SELECTED_REF: ${{ github.ref }}')
-    expect(guardBlock).toContain("process.env.SELECTED_REF !== 'refs/tags/' + process.env.RELEASE_TAG")
+    expect(workflow).not.toContain('workflow_dispatch:')
+    expect(workflow).not.toContain('inputs.tag')
+    expect(workflow).toContain('"--run-id=${{ github.run_id }}"')
+    expect(workflow).toContain('${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}')
+    expect(workflow).not.toContain('github.run_attempt')
   })
 
   it('passes every cross-platform package argument without host-shell expansion', () => {
@@ -516,23 +545,202 @@ describe('draft release idempotency', () => {
     expect(publicationUpdate('v0.2.0')).toEqual({draft: false, prerelease: false, make_latest: 'true'})
   })
 
-  it('accepts no release or one matching draft, and rejects published/conflicting identity', async () => {
+  it('accepts zero or one exact-tag candidate and rejects a published conflict', async () => {
     const client = new FakeClient()
     await expect(preflight({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client})).resolves.toBeNull()
-    const matching = {tag_name: tag, name: tag, target_commitish: commit, prerelease: true, draft: true, body: '# Candidate\n', assets: []}
+    const matching = {
+      id: 7,
+      tag_name: tag,
+      name: tag,
+      target_commitish: commit,
+      prerelease: true,
+      draft: true,
+      body: '# Candidate\n',
+      assets: []
+    }
     client.release = matching
-    await expect(preflight({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client})).resolves.toBe(matching)
-    expect(() => assertReleaseIdentity({...matching, draft: false}, {
-      tag, commit, prerelease: true
-    })).toThrow(/already published/)
+    await expect(preflight({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .resolves.toBe(matching)
+
+    client.release = {...matching, draft: false}
+    client.calls = []
+    await expect(preflight({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .rejects.toThrow(/already published/)
+    expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
     expect(() => assertReleaseIdentity({...matching, name: 'wrong-release-name'}, {
       tag, commit, prerelease: true
     })).toThrow(/identity conflicts/)
   })
 
+  it('finds a list-visible draft even when the release-by-tag endpoint returns 404', async () => {
+    const client = new FakeClient()
+    const matching = {
+      id: 7,
+      tag_name: tag,
+      name: tag,
+      target_commitish: commit,
+      prerelease: true,
+      draft: true,
+      body: '# Candidate\n',
+      assets: []
+    }
+    client.release = matching
+    expect(await client.request('GET', `/repos/owner/repo/releases/tags/${tag}`)).toBeNull()
+    client.calls = []
+
+    await expect(preflight({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .resolves.toBe(matching)
+    expect(client.calls.some((call) => call.url.includes('/releases/tags/'))).toBe(false)
+    expect(client.calls.some((call) => call.url.includes('/releases?per_page=100&page=1'))).toBe(true)
+  })
+
+  it('paginates the authenticated release list before selecting one exact-tag draft', async () => {
+    const client = new FakeClient()
+    const matching = {
+      id: 7,
+      tag_name: tag,
+      name: tag,
+      target_commitish: commit,
+      prerelease: true,
+      draft: true,
+      body: '# Candidate\n',
+      assets: []
+    }
+    client.releasePages = new Map([
+      [1, Array.from({length: 100}, (_, index) => ({id: 1000 + index, tag_name: `v9.9.${index}`}))],
+      [2, [matching]]
+    ])
+
+    await expect(preflight({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .resolves.toBe(matching)
+    expect(client.calls.filter((call) => call.url.includes('/releases?')).map((call) => call.url)).toEqual([
+      '/repos/owner/repo/releases?per_page=100&page=1',
+      '/repos/owner/repo/releases?per_page=100&page=2'
+    ])
+  })
+
+  it('fails preflight, synchronization, and publication on multiple exact-tag candidates before writes', async () => {
+    const matching = {
+      tag_name: tag,
+      name: tag,
+      target_commitish: commit,
+      prerelease: true,
+      draft: true,
+      body: '# Candidate\n',
+      assets: []
+    }
+    const operations = [
+      (client: FakeClient) => preflight(
+          {tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}),
+      (client: FakeClient) => syncDraft(
+          {tag, commit, repository: 'owner/repo', assets, sourceRoot: temporaryRoot}, {client}),
+      (client: FakeClient) => publishDraft(
+          {tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client})
+    ]
+
+    for (const operation of operations) {
+      const client = new FakeClient()
+      client.releases = [{id: 7, ...matching}, {id: 8, ...matching}]
+      await expect(operation(client)).rejects.toThrow(/Multiple GitHub Releases exist for exact tag/)
+      expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+      expect(client.calls.some((call) => call.url.startsWith('asset://'))).toBe(false)
+    }
+  })
+
+  it('rejects a published exact-tag conflict in every release operation before writes', async () => {
+    const published = {
+      id: 7,
+      tag_name: tag,
+      name: tag,
+      target_commitish: commit,
+      prerelease: true,
+      draft: false,
+      body: '# Candidate\n',
+      assets: []
+    }
+    const operations = [
+      (client: FakeClient) => preflight(
+          {tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}),
+      (client: FakeClient) => syncDraft(
+          {tag, commit, repository: 'owner/repo', assets, sourceRoot: temporaryRoot}, {client}),
+      (client: FakeClient) => publishDraft(
+          {tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client})
+    ]
+
+    for (const operation of operations) {
+      const client = new FakeClient()
+      client.release = {...published}
+      await expect(operation(client)).rejects.toThrow(/already published/)
+      expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+    }
+  })
+
+  it('detects a post-create duplicate race before uploading an asset', async () => {
+    const client = new FakeClient()
+    client.afterCreate = (created, fake) => {
+      fake.releases.push({...created, id: 8})
+    }
+
+    await expect(syncDraft({
+      tag,
+      commit,
+      repository: 'owner/repo',
+      assets,
+      sourceRoot: temporaryRoot
+    }, {client})).rejects.toThrow(/Multiple GitHub Releases exist for exact tag/)
+    expect(client.calls.filter((call) => call.method !== 'GET').map((call) => `${call.method} ${call.url}`))
+      .toEqual(['POST /repos/owner/repo/releases'])
+  })
+
+  it('detects a same-tag race after byte checks and before the first asset upload', async () => {
+    const client = new FakeClient()
+    const matching = {
+      id: 7,
+      tag_name: tag,
+      name: tag,
+      target_commitish: commit,
+      prerelease: true,
+      draft: true,
+      body: '# Candidate\n',
+      assets: []
+    }
+    client.release = matching
+    client.beforeList = (requestNumber, fake) => {
+      if (requestNumber === 2) fake.releases.push({...matching, id: 8})
+    }
+
+    await expect(syncDraft({
+      tag,
+      commit,
+      repository: 'owner/repo',
+      assets,
+      sourceRoot: temporaryRoot
+    }, {client})).rejects.toThrow(/Multiple GitHub Releases exist for exact tag/)
+    expect(client.calls.some((call) => call.url.startsWith('https://uploads.github.com/'))).toBe(false)
+    expect(client.calls.some((call) => ['DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+  })
+
+  it('rejects a post-create release-ID substitution before uploading an asset', async () => {
+    const client = new FakeClient()
+    client.afterCreate = (created, fake) => {
+      fake.releases = [{...created, id: 8}]
+    }
+
+    await expect(syncDraft({
+      tag,
+      commit,
+      repository: 'owner/repo',
+      assets,
+      sourceRoot: temporaryRoot
+    }, {client})).rejects.toThrow(/Release ID changed/)
+    expect(client.calls.filter((call) => call.method !== 'GET').map((call) => `${call.method} ${call.url}`))
+      .toEqual(['POST /repos/owner/repo/releases'])
+  })
+
   it('wires the exact workflow environment name through the draft-sync CLI entrypoint', () => {
     const fetchMock = path.join(temporaryRoot, 'mock-github-fetch.cjs')
     writeFile(fetchMock, `
+      let release = null
       global.fetch = async (url, options = {}) => {
         const response = (status, body) => ({
           status,
@@ -541,9 +749,12 @@ describe('draft release idempotency', () => {
           async text() { return JSON.stringify(body) },
           async arrayBuffer() { return Buffer.alloc(0) }
         })
-        if (options.method === 'GET' && String(url).includes('/releases/tags/')) return response(404, {})
+        if (options.method === 'GET' && String(url).includes('/releases?')) {
+          return response(200, release ? [release] : [])
+        }
         if (options.method === 'POST' && String(url).endsWith('/releases')) {
-          return response(201, {id: 7, assets: [], ...JSON.parse(options.body)})
+          release = {id: 7, assets: [], ...JSON.parse(options.body)}
+          return response(201, release)
         }
         if (options.method === 'POST' && String(url).startsWith('https://uploads.github.com/')) {
           return response(201, {id: 8})
@@ -610,9 +821,11 @@ describe('draft release idempotency', () => {
     expect(client.calls.some((call) => ['DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
   })
 
-  it('stops after one successful expected upload, then retries without replacing it', async () => {
+  it('reuses one run provenance and exact bytes when a failed assembly job is rerun', async () => {
     const client = new FakeClient()
     const expectedNames = fs.readdirSync(assets).sort()
+    expect(new Set(verifyReleaseSet(assets, tag, commit).targets.map((entry) => entry.workflow.runId)))
+      .toEqual(new Set(['123']))
     await expect(syncDraft({
       tag,
       commit,
@@ -651,7 +864,78 @@ describe('draft release idempotency', () => {
     expect(client.calls.some((call) => ['DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
   })
 
-  it('accepts exact-head push and recovery runs but rejects newer-master or failed heads', async () => {
+  it('does not report an idempotent synchronization success after a duplicate race', async () => {
+    const client = new FakeClient()
+    const releaseAssets = fs.readdirSync(assets).sort().map((name, index) => {
+      const bytes = fs.readFileSync(path.join(assets, name))
+      const url = `asset://sync-race-${index}`
+      client.bytes.set(url, bytes)
+      return {id: 20 + index, name, size: bytes.length, url}
+    })
+    const matching = {
+      id: 7,
+      tag_name: tag,
+      name: tag,
+      target_commitish: commit,
+      prerelease: true,
+      draft: true,
+      body: '# Candidate\n',
+      assets: releaseAssets
+    }
+    client.release = matching
+    client.beforeList = (requestNumber, fake) => {
+      if (requestNumber === 2) fake.releases.push({...matching, id: 8})
+    }
+
+    await expect(syncDraft({
+      tag,
+      commit,
+      repository: 'owner/repo',
+      assets,
+      sourceRoot: temporaryRoot
+    }, {client})).rejects.toThrow(/Multiple GitHub Releases exist for exact tag/)
+    expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+  })
+
+  it('rejects a fresh dispatch whose run provenance changes partial-draft bytes without writing', async () => {
+    const client = new FakeClient()
+    await expect(syncDraft({
+      tag,
+      commit,
+      repository: 'owner/repo',
+      assets,
+      sourceRoot: temporaryRoot,
+      canaryStopAfterUpload: authorizedCanary.stopAfterUploadValue
+    }, {client})).rejects.toThrow(/after one successful expected-asset upload/)
+
+    const freshAssets = path.join(temporaryRoot, 'fresh-release')
+    assembleReleaseAssets({
+      input: createStaging(path.join(temporaryRoot, 'fresh'), '456'),
+      output: freshAssets,
+      tag,
+      commit
+    })
+    const originalManifest = verifyReleaseSet(assets, tag, commit)
+    const freshManifest = verifyReleaseSet(freshAssets, tag, commit)
+    expect(new Set(originalManifest.targets.map((entry) => entry.workflow.runId))).toEqual(new Set(['123']))
+    expect(new Set(freshManifest.targets.map((entry) => entry.workflow.runId))).toEqual(new Set(['456']))
+    expect(hash(fs.readFileSync(path.join(assets, releaseManifestName(version)))))
+      .not.toBe(hash(fs.readFileSync(path.join(freshAssets, releaseManifestName(version)))))
+    expect(hash(fs.readFileSync(path.join(assets, checksumsName(version)))))
+      .not.toBe(hash(fs.readFileSync(path.join(freshAssets, checksumsName(version)))))
+
+    client.calls = []
+    await expect(syncDraft({
+      tag,
+      commit,
+      repository: 'owner/repo',
+      assets: freshAssets,
+      sourceRoot: temporaryRoot
+    }, {client})).rejects.toThrow(/bytes differ/)
+    expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+  })
+
+  it('publishes the one list-visible draft for an exact-head successful push run only', async () => {
     const client = new FakeClient()
     const releaseAssets = fs.readdirSync(assets).sort().map((name, index) => {
       const bytes = fs.readFileSync(path.join(assets, name))
@@ -681,17 +965,56 @@ describe('draft release idempotency', () => {
       prerelease: true,
       make_latest: 'false'
     })
+    expect(client.calls.some((call) => call.url.includes('/releases/tags/'))).toBe(false)
+    expect(client.calls.filter((call) => call.method === 'PATCH').map((call) => call.url))
+      .toEqual(['/repos/owner/repo/releases/7'])
+
     client.run = {...client.run, event: 'workflow_dispatch'}
     await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
-      .resolves.toMatchObject({draft: false, prerelease: true, make_latest: 'false'})
+      .rejects.toThrow(/not a successful allowed run/)
 
-    client.run = {...client.run, head_sha: 'b'.repeat(40)}
+    client.run = {...client.run, event: 'push', head_sha: 'b'.repeat(40)}
     await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
       .rejects.toThrow(/not a successful allowed run/)
 
     client.run = {...client.run, head_sha: commit, conclusion: 'failure'}
     await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
       .rejects.toThrow(/not a successful allowed run/)
+  })
+
+  it('rechecks uniqueness after publication verification and never publishes a raced duplicate', async () => {
+    const client = new FakeClient()
+    const releaseAssets = fs.readdirSync(assets).sort().map((name, index) => {
+      const bytes = fs.readFileSync(path.join(assets, name))
+      const url = `asset://publish-race-${index}`
+      client.bytes.set(url, bytes)
+      return {id: 20 + index, name, size: bytes.length, url}
+    })
+    const matching = {
+      id: 7,
+      tag_name: tag,
+      name: tag,
+      target_commitish: commit,
+      prerelease: true,
+      draft: true,
+      body: '# Candidate\n',
+      assets: releaseAssets
+    }
+    client.release = matching
+    client.run = {
+      head_sha: commit,
+      conclusion: 'success',
+      event: 'push',
+      path: '.github/workflows/release-prepare.yml',
+      html_url: 'https://github.example/runs/123'
+    }
+    client.beforeList = (requestNumber, fake) => {
+      if (requestNumber === 2) fake.releases.push({...matching, id: 8})
+    }
+
+    await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .rejects.toThrow(/Multiple GitHub Releases exist for exact tag/)
+    expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
   })
 
   it('rejects different bytes and unexpected existing assets without any write or clobber request', async () => {

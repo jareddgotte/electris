@@ -14,7 +14,7 @@ These repository settings are approved policy but are **not** changed by the rel
 
 Fork, pull-request, comment, and branch workflows must remain unable to enter either environment or receive its secrets. Do not add `pull_request_target` to any release path. Decode credentials only to restricted ephemeral files/keychains; never log, cache, or upload them.
 
-## Canary and recovery proof
+## Canary and recovery evidence
 
 ### Historical failed rc.1 evidence
 
@@ -24,7 +24,7 @@ Linux failed at the authorized canary hook, and Windows independently exposed un
 PowerShell path expansion in the tagged prepare workflow before package smoke or
 archival. Both temporary variables were removed and their absence verified, assembly
 was skipped, and no rc.1 draft, GitHub Release, or public asset set exists. The
-immutable rc.1 tag remains failed, unpublished evidence and has no recovery dispatch;
+immutable rc.1 tag remains failed, unpublished evidence and has no recovery run;
 [`../RELEASING.md`](../RELEASING.md) requires a corrected workflow in a new separately
 authorized SemVer/tag.
 
@@ -37,132 +37,117 @@ Retain only the rc.1 evidence that the logs and API state prove:
   draft, Release, or public asset set; and
 - the immutable annotated rc.1 tag identity.
 
-Do not set either old rc.1 canary value, dispatch preparation for rc.1, move, delete,
-or reuse its tag. Its immutable workflow predates the recovery selector guard and
-contains the Windows defect. A newer default-branch workflow would produce a prepare
-head rejected by the preserved publication check. Do not claim a complete matrix,
-partial-upload stop, draft recovery, idempotent retry, or publication proof for rc.1.
+Do not set either old rc.1 canary value, dispatch or rerun preparation for rc.1, move,
+delete, or reuse its tag. Do not claim a complete matrix, partial-upload stop, draft
+recovery, idempotent retry, or publication proof for rc.1.
 
-### Proposed rc.2 canary contract
+### Confirmed rc.2 duplicate-draft and byte-drift incident
 
-The temporary hooks are now hard-coded for only `v0.2.0-rc.2`. They read two temporary
-repository variables, which are selectors rather than credentials or secrets:
+The rc.2 procedure reached the partial-upload stage, but it disproved the former
+fresh-dispatch recovery contract. Preserve the full public problem statement in
+[issue 59](https://github.com/jareddgotte/electris/issues/59) and these run links:
 
-| Variable | Sole active value | Sole fail-only effect |
-| --- | --- | --- |
-| `ELECTRIS_CANARY_FAIL_TARGET` | `v0.2.0-rc.2:linux-x64` | Fails only the `linux-x64` package job before packaging. |
-| `ELECTRIS_CANARY_STOP_AFTER_UPLOAD` | `v0.2.0-rc.2:after-one-upload` | Stops draft synchronization immediately after its first successful missing expected-asset upload. |
+- [initial rc.2 tag-push failure](https://github.com/jareddgotte/electris/actions/runs/31036913029);
+- [partial one-asset preparation](https://github.com/jareddgotte/electris/actions/runs/31037458160); and
+- [fresh-dispatch duplicate-draft result](https://github.com/jareddgotte/electris/actions/runs/31038280899).
 
-Absent, malformed, rc.1, other-tag, wrong-target, and near-match values are inert. The
-variables cannot select another tag or target. The hooks cannot delete or replace an
-asset, create a publication path, or publish a Release; neither variable is read by
-the publication workflow. Changing the tag, target, or behavior requires another
-reviewed code change. Retargeting is prerequisite code only and does not authorize a
-tag, variable mutation, workflow run, draft, or publication.
+The initiating trigger was the partial run, which left draft `365756727` with checksum
+asset `502980359`. The masking defect was release discovery through the release-by-tag
+endpoint: it returned 404 while the authenticated paginated release list and direct-ID
+queries exposed the draft. Preflight and synchronization treated that 404 as absence,
+so the fresh dispatch created draft `365762809`. The visible symptom is two unpublished
+exact-tag drafts, with one and four assets respectively.
 
-Every separately authorized manual prepare for rc.2 recovery must select the same
-existing tag as both the workflow ref and input:
+The two 332-byte checksum assets are not byte-identical:
 
-```bash
-tag=v0.2.0-rc.2
-gh workflow run release-prepare.yml --repo jareddgotte/electris --ref "$tag" -f tag="$tag"
-```
+- asset `502980359`: `sha256:c4a6a03b886c9465cf137e3bed7f4d103f3eb07677783a9f128fd09e199ae234`;
+- asset `502989533`: `sha256:edbd93947f835d91e3f234a4de6ae187e9cd73f684dcd245a5a411e81619f045`.
 
-This runs the workflow version contained in the tag and preserves exact-head
-publication. The guard rejects a branch ref or different tag; omitting `--ref` is not
-a recovery. Never overlap prepare runs: confirm the preceding run has reached a
-terminal conclusion before setting a variable or dispatching the next stage.
+Every digest inside the checksum files differs because the fresh run rebuilt archives
+and embedded a new workflow run identity in fragments and the manifest. Correct draft
+discovery would have rejected those bytes before upload; a fresh dispatch could not
+have completed the partial set safely.
 
-The following is the bounded future rc.2 procedure. Every tag, variable, workflow,
-draft, and publication operation remains separately authorized. Before any operation,
-confirm the protected native matrix is still Linux x64, Windows x64, macOS arm64 on
-`macos-15`, and macOS x64 on `macos-15-intel`, and define a fail-closed absence check:
+Both rc.2 canary variables are absent. Do not set them again. Do not dispatch or rerun
+rc.2 preparation, dispatch publication, delete either draft, delete/replace/rename an
+asset, publish either draft, or move/delete either rc tag. The immutable rc.2 workflow
+cannot acquire a default-branch fix. Both drafts, all five assets, tags, and runs remain
+incident evidence until a separately authorized disposition.
+
+## Same-run recovery contract for a successor
+
+The prepare workflow accepts tag-push events only. A future successor candidate must
+contain this corrected workflow before its separately authorized immutable tag is
+created. A new `workflow_dispatch`, repeated tag event, newer-branch run, or rebuilt
+asset set is not recovery.
+
+GitHub rerun attempts retain the workflow run ID. Successful package jobs retain their
+`release-target-*` artifacts for 14 days; rerunning failed jobs and their dependents in
+the same run lets assembly download those exact archives and fragments. Because every
+fragment records `github.run_id`, the manifest and checksum provenance remain stable.
+Use the following only for a separately authorized successor run, never rc.1 or rc.2:
 
 ```bash
 set -euo pipefail
 repo=jareddgotte/electris
-fail_variable=ELECTRIS_CANARY_FAIL_TARGET
-upload_variable=ELECTRIS_CANARY_STOP_AFTER_UPLOAD
+run_id=<authorized-successor-prepare-run-id>
 
-verify_canary_variables_absent() {
-  variable_names="$(gh variable list --repo "$repo" --json name --jq '.[].name')"
-  for name in "$fail_variable" "$upload_variable"; do
-    if grep -Fxq "$name" <<<"$variable_names"; then
-      echo "temporary canary variable is still present: $name" >&2
-      return 1
-    fi
-  done
-}
-
-verify_canary_variables_absent
+gh run view "$run_id" --repo "$repo"
+gh run rerun "$run_id" --repo "$repo" --failed
 ```
 
-For the separately authorized exact-tag push, set and read back only the target-failure
-value:
+Wait for that rerun attempt to reach a terminal conclusion before another operation.
+Do not use `gh workflow run release-prepare.yml`. If target artifacts have expired, a
+required package artifact is absent, the run/tag/head does not match, or rerunning
+failed jobs cannot reach assembly, stop. Correct the source if necessary and propose a
+new SemVer/tag; do not rebuild under a fresh run and call it byte recovery.
+
+A separately authorized partial-upload canary for a successor requires another focused
+change that retargets the inert exact-value hooks. After the assembly job intentionally
+stops, remove its temporary variable and prove all canary variables absent. Then use
+`gh run rerun "$run_id" --repo "$repo" --failed` so only the failed assembly path is
+retried against successful package artifacts from that run. Synchronization must:
+
+1. search every authenticated release-list page for exact `tag_name` matches;
+2. require zero or one candidate before creation and exactly the created release ID afterward;
+3. recheck exact-tag uniqueness and the bound ID before asset upload and before reporting success;
+4. validate all existing asset names, sizes, and bytes before writing any missing file; and
+5. stop without upload, replacement, deletion, or publication on ambiguity or byte drift.
+
+After successful recovery, a separately authorized no-upload proof may rerun the
+successful assembly job within the same workflow run:
 
 ```bash
-gh variable set "$fail_variable" --repo "$repo" --body 'v0.2.0-rc.2:linux-x64'
-test "$(gh variable get "$fail_variable" --repo "$repo")" = 'v0.2.0-rc.2:linux-x64'
+assemble_job_id="$(
+  gh run view "$run_id" --repo "$repo" --json jobs \
+    --jq '[.jobs[] | select(.name == "Assemble guarded draft" and .conclusion == "success") | .databaseId] | last'
+)"
+test -n "$assemble_job_id" && test "$assemble_job_id" != null
+gh run rerun "$run_id" --repo "$repo" --job "$assemble_job_id"
 ```
 
-The separately authorized tag operation and its prepare run occur only after that
-readback. After the run stops at the intended Linux hook, or after any unexpected
-interruption, delete the variable immediately and verify both names absent:
+That attempt must perform no release upload, update, deletion, or publication. Download
+and verify the exact four-asset draft after recovery and after the no-upload proof.
+Publication remains a later protected-environment decision. It must rediscover exactly
+one draft through authenticated pagination, bind to that release ID, verify the exact
+asset set and one successful tag-push prepare run for the tagged commit, recheck
+uniqueness and asset inventory, and publish without rebuilding or replacing bytes.
 
-```bash
-gh variable delete "$fail_variable" --repo "$repo"
-verify_canary_variables_absent
-```
-
-Record the exact tag, commit, run URL, intentional Linux failure, all other target
-conclusions, skipped assembly, and absence of a draft or Release. Any failure other
-than the selected Linux hook is an investigation stop.
-
-Only after that run is terminal and both variables are proven absent may a separately
-authorized partial-upload stage begin. Set and read back only the upload-stop value:
-
-```bash
-gh variable set "$upload_variable" --repo "$repo" --body 'v0.2.0-rc.2:after-one-upload'
-test "$(gh variable get "$upload_variable" --repo "$repo")" = 'v0.2.0-rc.2:after-one-upload'
-```
-
-Then manually dispatch the exact existing tag using the command above. The four native
-package jobs must succeed before assembly uploads exactly one missing expected asset
-and stops. After that stop or any interruption, delete the variable immediately and
-verify both names absent:
-
-```bash
-gh variable delete "$upload_variable" --repo "$repo"
-verify_canary_variables_absent
-```
-
-Confirm the draft is still unpublished and contains exactly the one expected asset
-with the expected bytes. A byte or size mismatch, duplicate, or extra asset is an
-investigation stop. Do not remove, rename, or replace anything to make recovery pass.
-Keep the draft unpublished and escalate according to the incident guidance in
-[`../RELEASING.md`](../RELEASING.md).
-
-After that run is terminal and variable absence is proven again, a separately
-authorized exact-tag recovery dispatch with no canary variables may validate the
-existing byte-identical asset and upload only the missing expected assets. Download
-and verify the resulting exact draft set. One further separately authorized exact-tag
-prepare with both variables absent must perform no uploads, replacements, or deletions;
-that is the idempotent no-upload recovery proof. Any divergence stops the canary.
-Publication remains a later protected-environment decision: it must consume this exact
-successful prepare head and existing draft, download and revalidate every asset, and
-publish without rebuilding or replacing bytes.
-
-Before approving this retarget or executing any stage, manually compare the release
-workflows and record that event filters, top-level and job permissions, protected
-environments, concurrency, full-SHA Action pins, secret flow, native runner
-labels/matrix, bounded smoke commands, public-asset policy, draft-only write path, and
-publication's exact-head no-rebuild path are unchanged. The active default-branch
-protection ruleset is unchanged. Workflow artifacts are qualification evidence, not
-public assets. Keep the canary draft until separately authorized publication or
-documented retirement.
+Before any successor operation, manually compare the release workflows and record the
+event filters, top-level and job permissions, protected environments, concurrency,
+full-SHA Action pins, token and secret flow, native runner labels/matrix, bounded smoke
+commands, artifact retention, public-asset policy, draft-only write path, and
+publication's exact-head no-rebuild path. Workflow artifacts are qualification
+evidence, not public assets.
 
 ## After recovery is proven
 
-Enable immutable GitHub releases only after the captain accepts canary recovery behavior. Published bytes remain non-replaceable by policy even before the setting is enabled; corrections always use a new SemVer/tag. Record any break-glass operation and retain the affected tag, release, hashes, and workflow evidence.
+Enable immutable GitHub releases only after the captain accepts a successor canary's
+same-run recovery behavior. Published bytes remain non-replaceable by policy even
+before the setting is enabled; corrections always use a new SemVer/tag. Record any
+break-glass operation and retain the affected tag, release, hashes, and workflow
+evidence.
 
-Separately evaluate secret scanning, push protection, and Dependabot security updates. Those controls are valuable but do not substitute for the release identity, environment, and tag protections above.
+Separately evaluate secret scanning, push protection, and Dependabot security updates.
+Those controls are valuable but do not substitute for the release identity,
+environment, and tag protections above.
