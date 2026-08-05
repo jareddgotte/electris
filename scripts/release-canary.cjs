@@ -1,10 +1,10 @@
 'use strict'
 
 const authorizedCanary = Object.freeze({
-  tag: 'v0.2.0-rc.1',
+  tag: 'v0.2.0-rc.2',
   target: 'linux-x64',
-  targetFailureValue: 'v0.2.0-rc.1:linux-x64',
-  stopAfterUploadValue: 'v0.2.0-rc.1:after-one-upload'
+  targetFailureValue: 'v0.2.0-rc.2:linux-x64',
+  stopAfterUploadValue: 'v0.2.0-rc.2:after-one-upload'
 })
 
 function targetFailureCanaryEnabled(value, tag, target) {
