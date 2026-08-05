@@ -20,6 +20,9 @@ This is the authoritative repository guide for contributors and coding agents. S
   evidence, checksums/manifests, and idempotent draft/publication contracts.
 - `.github/workflows/release-*.yml`: tag-driven draft preparation and separately
   environment-approved publish-only automation.
+- `.github/workflows/runner-qualification.yml` and
+  `scripts/runner-qualification-record.cjs`: protected-`master`-only, manually
+  dispatched native-runner qualification and its compact JSON evidence record.
 - `RELEASING.md`, `SUPPORT.md`, and `SECURITY.md`: release operator flow,
   support disposition, and security disposition guidance linked from the README.
 - `.github/pull_request_template.md`: required PR description structure.

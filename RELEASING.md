@@ -24,6 +24,18 @@ Before packaging, `npm run release:identity -- --tag=v<version>` requires exact 
 
 It also rejects the archival tags. The prepare workflow separately rejects an existing published or conflicting GitHub Release before any package job runs. A recovery dispatch accepts only an already existing tag. No workflow creates, moves, or deletes tags.
 
+## Pre-tag runner qualification
+
+After `.github/workflows/runner-qualification.yml` is merged to protected `master`, a captain may separately authorize one manual qualification dispatch:
+
+```text
+gh workflow run runner-qualification.yml --ref master
+```
+
+Do not dispatch it from the implementing pull request. The workflow has no selector inputs, rejects every ref and workflow source except protected `master`, and keeps `GITHUB_TOKEN` read-only. Its four native jobs assert the exact runner platform and architecture, then run `package:host`, package verification, the repository-owned bounded package smoke, and package verification again. They do not enter a release or signing environment, use secrets, create tags or releases, archive packages, or publish anything.
+
+Each successful target uploads only its compact JSON qualification record for seven days; package directories and distributable archives remain runner-local and expire with the job. Review the four job logs, platform/architecture assertions, matching-host smoke results, final verification, commit SHA, and JSON records. Actions run logs follow the repository's bounded retention setting. This evidence qualifies runner availability for the reviewed commit only and does not authorize a tag, draft, publication, or support claim.
+
 ## Automated preparation
 
 `.github/workflows/release-prepare.yml` runs on `v*` tag pushes and recovery-only manual dispatch. The tag glob is only an event filter; the repository identity script performs strict parsing.
