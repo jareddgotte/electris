@@ -1,0 +1,115 @@
+name: Qualify native release runners
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-runner-qualification
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    name: Qualify ${{ matrix.platform }}/${{ matrix.arch }}
+    if: >-
+      github.ref == 'refs/heads/master' &&
+      github.event.repository.default_branch == 'master' &&
+      github.workflow_ref == format('{0}/.github/workflows/runner-qualification.yml@refs/heads/master', github.repository)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux
+            arch: x64
+          - runner: windows-latest
+            platform: win32
+            arch: x64
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+          - runner: macos-15-intel
+            platform: darwin
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out the dispatched protected master commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Establish protected master identity before running repository code
+        shell: bash
+        env:
+          QUALIFICATION_SHA: ${{ github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$QUALIFICATION_SHA"
+          git merge-base --is-ancestor HEAD refs/remotes/origin/master
+
+      - name: Use declared Node version
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Use declared npm version
+        run: npm install --global npm@11.19.0
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Assert exact native runner target
+        env:
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: node -e "if (process.platform !== process.env.EXPECTED_PLATFORM || process.arch !== process.env.EXPECTED_ARCH) throw new Error('Runner is ' + process.platform + '/' + process.arch + ', expected ' + process.env.EXPECTED_PLATFORM + '/' + process.env.EXPECTED_ARCH)"
+
+      - name: Resolve native package path
+        id: package-path
+        env:
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: node -e "const fs = require('fs'); const version = require('./package.json').version; fs.appendFileSync(process.env.GITHUB_OUTPUT, 'path=dist/electris-v' + version + '-' + process.env.EXPECTED_PLATFORM + '-' + process.env.EXPECTED_ARCH + '\n')"
+
+      - name: Build package on its native host
+        run: npm run package:host
+
+      - name: Verify package before launch
+        run: node scripts/package-verify.cjs "${{ steps.package-path.outputs.path }}"
+
+      - name: Allow only the packaged Linux Electron binary to use user namespaces
+        if: matrix.platform == 'linux'
+        env:
+          PACKAGE_PATH: ${{ steps.package-path.outputs.path }}
+        run: |
+          cat <<EOF | sudo tee /etc/apparmor.d/electris-electron-runner-qualification-smoke
+          abi <abi/4.0>,
+          include <tunables/global>
+
+          profile electris-electron-runner-qualification-smoke ${{ github.workspace }}/${PACKAGE_PATH}/electris flags=(unconfined) {
+            userns,
+            include if exists <local/electris-electron-runner-qualification-smoke>
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/electris-electron-runner-qualification-smoke
+
+      - name: Run bounded matching-host package smoke
+        run: node scripts/package-smoke.cjs "${{ steps.package-path.outputs.path }}"
+
+      - name: Verify package after launch
+        run: node scripts/package-verify.cjs "${{ steps.package-path.outputs.path }}"
+
+      - name: Write compact qualification record
+        run: node scripts/runner-qualification-record.cjs "${{ steps.package-path.outputs.path }}" "${{ matrix.runner }}" "${{ github.sha }}"
+
+      - name: Retain compact qualification record only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: runner-qualification-${{ matrix.platform }}-${{ matrix.arch }}
+          path: qualification-records/${{ matrix.platform }}-${{ matrix.arch }}.json
+          if-no-files-found: error
+          retention-days: 7
