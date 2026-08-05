@@ -13,6 +13,7 @@ const {
   sha256
 } = require('./release-config.cjs')
 const {verifyReleaseSet} = require('./release-assets.cjs')
+const {partialDraftCanaryEnabled} = require('./release-canary.cjs')
 const {root} = require('./package-config.cjs')
 
 function repositoryParts(repository) {
@@ -140,26 +141,37 @@ async function syncDraft(options, operations = {}) {
   const existing = mapAssets(release.assets)
   const extras = [...existing.keys()].filter((name) => !expectedFiles.includes(name))
   if (extras.length > 0) throw new Error(`Draft release has unexpected assets: ${extras.join(', ')}`)
+
+  // Validate every existing expected asset before writing any missing asset. This
+  // keeps mismatches and extras fail-only even during the bounded partial-draft proof.
   for (const basename of expectedFiles) {
-    const localPath = path.join(options.assets, basename)
     const asset = existing.get(basename)
-    if (asset) {
-      if (asset.size !== fs.statSync(localPath).size) throw new Error(`Existing draft asset size differs: ${basename}`)
-      const bytes = await downloadAsset(client, asset)
-      const temporary = path.join(os.tmpdir(), `electris-existing-${process.pid}-${basename}`)
-      try {
-        fs.writeFileSync(temporary, bytes)
-        if (sha256(temporary) !== sha256(localPath)) throw new Error(`Existing draft asset bytes differ: ${basename}`)
-      } finally {
-        fs.rmSync(temporary, {force: true})
-      }
-      continue
+    if (!asset) continue
+    const localPath = path.join(options.assets, basename)
+    if (asset.size !== fs.statSync(localPath).size) throw new Error(`Existing draft asset size differs: ${basename}`)
+    const bytes = await downloadAsset(client, asset)
+    const temporary = path.join(os.tmpdir(), `electris-existing-${process.pid}-${basename}`)
+    try {
+      fs.writeFileSync(temporary, bytes)
+      if (sha256(temporary) !== sha256(localPath)) throw new Error(`Existing draft asset bytes differ: ${basename}`)
+    } finally {
+      fs.rmSync(temporary, {force: true})
     }
+  }
+
+  const stopAfterOneUpload = partialDraftCanaryEnabled(options.canaryStopAfterUpload, identity.tag)
+  let uploads = 0
+  for (const basename of expectedFiles.filter((name) => !existing.has(name))) {
+    const localPath = path.join(options.assets, basename)
     const encodedName = encodeURIComponent(basename)
     await client.request('POST', `https://uploads.github.com/repos/${owner}/${repo}/releases/${release.id}/assets?name=${encodedName}`, {
       body: fs.readFileSync(localPath),
       contentType: 'application/octet-stream'
     })
+    uploads += 1
+    if (stopAfterOneUpload && uploads === 1) {
+      throw new Error(`Authorized temporary release canary stopped ${identity.tag} after one successful expected-asset upload`)
+    }
   }
   return release
 }
@@ -238,7 +250,9 @@ async function main() {
   }
   try {
     if (options.command === 'preflight') await preflight(options)
-    if (options.command === 'sync-draft') await syncDraft(options)
+    if (options.command === 'sync-draft') {
+      await syncDraft({...options, canaryStopAfterUpload: process.env.ELECTRIS_CANARY_STOP_AFTER_UPLOAD})
+    }
     if (options.command === 'publish') await publishDraft(options)
     console.log(`GitHub release ${options.command} passed for ${options.tag}`)
   } catch (error) {

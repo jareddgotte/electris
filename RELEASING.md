@@ -37,7 +37,9 @@ The workflow:
 5. assembles the exact public asset set only after every target succeeds; and
 6. creates or idempotently completes a **draft** GitHub Release.
 
-Only draft assembly receives `contents: write`. Per-tag concurrency does not cancel an in-progress release. Existing assets are downloaded and hash-compared; missing assets are uploaded, while unexpected or different bytes stop the run. Raw `dist/` directories are never uploaded.
+Only draft assembly receives `contents: write`. Per-tag concurrency does not cancel an in-progress release. Existing assets are downloaded and hash-compared before any missing asset is written; missing assets are uploaded, while unexpected or different bytes stop the run. Raw `dist/` directories are never uploaded.
+
+Preparation contains two inert-by-default, fail-only repository-variable canary hooks hard-coded to `v0.2.0-rc.1`: one exact `linux-x64` target failure and one stop after a single successful expected-asset upload. They cannot select another tag or target and are absent from publication. Their exact temporary set, readback, remove, verify-absent, recovery, and evidence procedure is in [`docs/release-administration.md`](docs/release-administration.md). The procedure is a plan and does not claim that the canary has run or a draft exists.
 
 Linux's workflow AppArmor profiles grant `userns` only to the exact installed or packaged Electron executable and do not disable Electron's sandbox. All Electron launches use repository-owned bounded smoke harnesses.
 
@@ -79,7 +81,7 @@ Before authorizing publication, manually review the committed notes, prepare run
 ## Failure recovery and rollback
 
 - A failed required platform leaves no assembled or published release. Rerun transient failures against the same immutable tag.
-- Partial draft assembly adds missing assets and accepts byte-identical assets only. Different bytes or extras require investigation; there is no clobber path.
+- Partial draft assembly first validates every existing expected asset, then adds missing assets and accepts byte-identical assets only. Different bytes or extras require investigation; there is no clobber path.
 - A source, version, note, or package defect requires a corrected pull request and a new SemVer/tag (`rc.2` or a patch). Never move or delete the old tag to hide it.
 - Keep bad drafts unpublished. If a release was published, mark it withdrawn/deprecated, retain incident hashes and evidence, and supersede it with a new version. Never silently replace published bytes. Desktop downloads cannot be remotely rolled back.
 - Enable GitHub immutable releases only after an authorized prerelease canary proves matrix failure, partial-upload recovery, duplicate preparation, draft download verification, and publication controls.

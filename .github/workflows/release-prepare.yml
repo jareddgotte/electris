@@ -156,6 +156,13 @@ jobs:
           EXPECTED_ARCH: ${{ matrix.arch }}
         run: node -e "if (process.platform !== process.env.EXPECTED_PLATFORM || process.arch !== process.env.EXPECTED_ARCH) throw new Error('Runner is ' + process.platform + '/' + process.arch + ', expected ' + process.env.EXPECTED_PLATFORM + '/' + process.env.EXPECTED_ARCH)"
 
+      - name: Apply exact-tag selected-target failure canary
+        env:
+          ELECTRIS_CANARY_FAIL_TARGET: ${{ vars.ELECTRIS_CANARY_FAIL_TARGET }}
+          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+          RELEASE_TARGET: ${{ matrix.platform }}-${{ matrix.arch }}
+        run: node scripts/release-canary.cjs
+
       - name: Build package on its native host
         run: npm run package:host
 
@@ -240,6 +247,7 @@ jobs:
 
       - name: Create or idempotently complete the draft only
         env:
+          ELECTRIS_CANARY_STOP_AFTER_UPLOAD: ${{ vars.ELECTRIS_CANARY_STOP_AFTER_UPLOAD }}
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.identity.outputs.tag }}
           RELEASE_SHA: ${{ needs.identity.outputs.sha }}
