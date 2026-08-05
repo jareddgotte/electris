@@ -120,13 +120,15 @@ describe('runner qualification workflow contract', () => {
     expect(workflow).not.toMatch(/npm run (?:start|smoke)|release-(?:archive|assets|github)|npm publish/)
   })
 
-  it('uploads only compact JSON evidence for seven days', () => {
+  it('uploads only compact, ignored JSON evidence for seven days', () => {
     expect(matchingLines(workflow, 'actions/upload-artifact@')).toHaveLength(1)
     const upload = workflow.slice(workflow.indexOf('actions/upload-artifact@'))
     expect(upload).toContain('path: qualification-records/${{ matrix.platform }}-${{ matrix.arch }}.json')
     expect(upload).toContain('if-no-files-found: error')
     expect(upload).toContain('retention-days: 7')
     expect(upload).not.toMatch(/\bdist\/|release-work|release-assets|\.(?:zip|tar|gz|dmg|exe)\b/)
+    expect(fs.readFileSync(path.join(process.cwd(), '.gitignore'), 'utf8'))
+      .toContain('/qualification-records/')
   })
 })
 

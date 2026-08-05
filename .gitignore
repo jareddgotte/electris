@@ -16,6 +16,7 @@ out/
 /electron/
 build/
 dist/
+/qualification-records/
 /release-assets/
 /release-staging/
 /release-work/
