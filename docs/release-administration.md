@@ -16,6 +16,13 @@ Fork, pull-request, comment, and branch workflows must remain unable to enter ei
 
 ## Canary and recovery evidence
 
+<a id="canary-and-recovery-proof"></a>
+
+This section was previously titled "Canary and recovery proof". The frozen
+[`releases/v0.2.0-rc.2.md`](releases/v0.2.0-rc.2.md) snapshot is preserved incident
+evidence and is never edited, so it still points here by that former title. Both that
+name and the `#canary-and-recovery-proof` anchor resolve to this section.
+
 ### Historical failed rc.1 evidence
 
 The first exact-tag target-failure stage ran for `v0.2.0-rc.1` in
@@ -108,7 +115,9 @@ stops, remove its temporary variable and prove all canary variables absent. Then
 `gh run rerun "$run_id" --repo "$repo" --failed` so only the failed assembly path is
 retried against successful package artifacts from that run. Synchronization must:
 
-1. search every authenticated release-list page for exact `tag_name` matches;
+1. search every authenticated release-list page for exact `tag_name` matches, acting
+   only after two consecutive complete list snapshots agree on the same ordered,
+   duplicate-free release IDs and refusing to act under sustained list churn;
 2. require zero or one candidate before creation and exactly the created release ID afterward;
 3. recheck exact-tag uniqueness and the bound ID before asset upload and before reporting success;
 4. validate all existing asset names, sizes, and bytes before writing any missing file; and

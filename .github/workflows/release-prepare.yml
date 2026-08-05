@@ -54,16 +54,40 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: node scripts/release-identity.cjs "--tag=$RELEASE_TAG"
 
+  preflight:
+    name: Reject a conflicting GitHub Release before packaging
+    needs: identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # GitHub returns draft releases only to a token with push access, so exact-tag
+    # discovery cannot see an existing draft under contents: read and the fail-fast
+    # claim would silently pass. Keep that elevated scope on this discovery-only job,
+    # which lists releases and writes nothing; identity, source, and package jobs stay
+    # read-only, and the workflow default stays read-only.
+    permissions:
+      contents: write
+    steps:
+      - name: Check out validated tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.identity.outputs.tag }}
+          persist-credentials: false
+
+      - name: Use declared Node version
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
       - name: Reject a conflicting GitHub Release before packaging
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.identity.outputs.tag }}
-          RELEASE_SHA: ${{ steps.identity.outputs.sha }}
+          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+          RELEASE_SHA: ${{ needs.identity.outputs.sha }}
         run: node scripts/release-github.cjs preflight "--tag=$RELEASE_TAG" "--commit=$RELEASE_SHA" "--repository=$GITHUB_REPOSITORY"
 
   source-validate:
     name: Validate tagged source
-    needs: identity
+    needs: [identity, preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -106,7 +130,7 @@ jobs:
 
   package:
     name: Qualify ${{ matrix.platform }}/${{ matrix.arch }}
-    needs: [identity, source-validate]
+    needs: [identity, preflight, source-validate]
     strategy:
       fail-fast: false
       matrix:

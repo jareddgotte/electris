@@ -62,26 +62,53 @@ function assertReleaseIdentity(release, identity, expectedBody) {
   }
 }
 
-async function findRelease(client, repository, tag) {
-  const {owner, repo} = repositoryParts(repository)
-  const matches = []
-  const perPage = 100
-  for (let page = 1; ; page += 1) {
-    const releases = await client.request(
-        'GET', `/repos/${owner}/${repo}/releases?per_page=${perPage}&page=${page}`)
-    if (!Array.isArray(releases)) throw new Error('GitHub release list response is not an array')
-    matches.push(...releases.filter((release) => release.tag_name === tag))
-    if (matches.length > 1) {
-      throw new Error(`Multiple GitHub Releases exist for exact tag ${tag}: ${matches.map((release) => release.id).join(', ')}`)
-    }
-    if (releases.length < perPage) break
-  }
-  return matches[0] || null
-}
-
 function releaseId(release) {
   if (!Number.isSafeInteger(release?.id) || release.id <= 0) throw new Error('GitHub Release has an invalid ID')
   return release.id
+}
+
+const releaseListPageSize = 100
+const releaseListSnapshotAttempts = 4
+
+async function releaseListSnapshot(client, owner, repo) {
+  const releases = []
+  for (let page = 1; ; page += 1) {
+    const batch = await client.request(
+        'GET', `/repos/${owner}/${repo}/releases?per_page=${releaseListPageSize}&page=${page}`)
+    if (!Array.isArray(batch)) throw new Error('GitHub release list response is not an array')
+    releases.push(...batch)
+    if (batch.length < releaseListPageSize) break
+  }
+  return releases
+}
+
+// Offset pagination over the release list is not atomic. A release created or deleted
+// between page fetches shifts the page boundary, so a single complete walk can return
+// one release twice or skip it entirely. Duplicating it fabricates an ambiguous
+// identity; skipping it lets synchronization create a second same-tag draft, which is
+// exactly the duplicate-draft class this discovery path exists to close. Require two
+// consecutive complete snapshots that agree on the same ordered, duplicate-free release
+// IDs before any caller may act on the list, and refuse to act under sustained churn
+// rather than proceeding on an unstable list.
+async function listReleases(client, repository) {
+  const {owner, repo} = repositoryParts(repository)
+  let previousKey = null
+  for (let attempt = 0; attempt < releaseListSnapshotAttempts; attempt += 1) {
+    const releases = await releaseListSnapshot(client, owner, repo)
+    const ids = releases.map((release) => releaseId(release))
+    const key = new Set(ids).size === ids.length ? ids.join(',') : null
+    if (key !== null && key === previousKey) return releases
+    previousKey = key
+  }
+  throw new Error('GitHub release list did not repeat one stable complete snapshot; refusing to act on a changing release list')
+}
+
+async function findRelease(client, repository, tag) {
+  const matches = (await listReleases(client, repository)).filter((release) => release.tag_name === tag)
+  if (matches.length > 1) {
+    throw new Error(`Multiple GitHub Releases exist for exact tag ${tag}: ${matches.map((release) => release.id).join(', ')}`)
+  }
+  return matches[0] || null
 }
 
 async function findBoundRelease(client, repository, tag, expectedId) {

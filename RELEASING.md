@@ -22,7 +22,7 @@ Before packaging, `npm run release:identity -- --tag=v<version>` requires exact 
 4. `docs/releases/v<version>.md`; and
 5. ancestry from protected `origin/master`.
 
-It also rejects the archival tags. Before any package job, preparation searches the authenticated paginated release list, including drafts, and rejects a published, conflicting, or non-unique exact-tag Release. Preparation has no fresh-dispatch recovery trigger. No workflow creates, moves, or deletes tags.
+It also rejects the archival tags. Before any package job, a dedicated preflight job searches the authenticated paginated release list and rejects a published, conflicting, or non-unique exact-tag Release. GitHub returns draft releases only to a token with push access, so that job alone carries a job-scoped `contents: write` token and sees existing drafts; it lists releases and performs no write. The workflow default and every identity, source, and package job stay read-only. Preparation has no fresh-dispatch recovery trigger. No workflow creates, moves, or deletes tags.
 
 ## Pre-tag runner qualification
 
@@ -66,14 +66,18 @@ The workflow:
 5. assembles the exact public asset set only after every target succeeds; and
 6. creates or idempotently completes at most one **draft** GitHub Release.
 
-Only draft assembly receives `contents: write`. Per-tag concurrency does not cancel an
-in-progress release. Discovery includes drafts, requires an exact `tag_name`, and
-fails on multiple candidates. After creation, synchronization rechecks exact-tag
-uniqueness and the created release ID before any asset upload and again before
-reporting success. Existing assets are
-downloaded and hash-compared before any missing asset is written; missing assets are
-uploaded, while unexpected or different bytes stop the run. Raw `dist/` directories
-are never uploaded.
+Only the draft-discovery preflight job and draft assembly receive `contents: write`,
+each job-scoped; the preflight token exists solely so draft releases are visible to
+discovery. Per-tag concurrency does not cancel an in-progress release. Discovery
+includes drafts, requires an exact `tag_name`, and fails on multiple candidates.
+Because offset pagination can duplicate or skip a release when the list changes
+mid-walk, discovery repeats the complete list and acts only after two consecutive
+snapshots agree on the same ordered, duplicate-free release IDs; sustained churn
+fails the operation instead of selecting from an unstable list. After creation,
+synchronization rechecks exact-tag uniqueness and the created release ID before any
+asset upload and again before reporting success. Existing assets are downloaded and
+hash-compared before any missing asset is written; missing assets are uploaded, while
+unexpected or different bytes stop the run. Raw `dist/` directories are never uploaded.
 
 Preparation still contains two inert-by-default, fail-only repository-variable canary
 hooks hard-coded to `v0.2.0-rc.2`. Both variables are absent. The rc.2 partial-upload

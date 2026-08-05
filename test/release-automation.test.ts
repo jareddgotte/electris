@@ -367,16 +367,46 @@ describe('release workflow security contract', () => {
     }
   })
 
-  it('limits preparation to tag pushes and isolates its only contents write', () => {
+  it('limits preparation to tag pushes and isolates every contents write to a job', () => {
     const workflow = fs.readFileSync(path.join(workflowsRoot, 'release-prepare.yml'), 'utf8')
     expect(workflow).toContain("- 'v*'")
     expect(workflow).not.toContain('workflow_dispatch:')
     expect(workflow).not.toMatch(/pull_request(?:_target)?:|issue_comment:|branches:/)
-    expect(workflow.match(/contents: write/g)).toHaveLength(1)
+    expect(workflow.match(/^permissions:\n  contents: read$/m)).not.toBeNull()
+    expect(workflow.match(/contents: write/g)).toHaveLength(2)
+    expect(workflow.match(/^    permissions:\n      contents: write$/gm)).toHaveLength(2)
     expect(workflow).not.toContain('id-token: write')
     expect(workflow).toContain('cancel-in-progress: false')
     expect(workflow).toContain('runner: macos-15\n            platform: darwin\n            arch: arm64')
     expect(workflow).toContain('runner: macos-15-intel\n            platform: darwin\n            arch: x64')
+  })
+
+  it('grants draft visibility only to the discovery preflight job that gates packaging', () => {
+    const workflow = fs.readFileSync(path.join(workflowsRoot, 'release-prepare.yml'), 'utf8')
+    const jobs = new Map<string, string>()
+    const names = [...workflow.matchAll(/^ {2}([a-z][a-z-]*):$/gm)]
+    for (const [index, match] of names.entries()) {
+      const start = match.index as number
+      jobs.set(match[1], workflow.slice(start, index + 1 < names.length ? names[index + 1].index : workflow.length))
+    }
+    const preflightJob = jobs.get('preflight') as string
+
+    // Draft releases are invisible to a contents: read token, so the fail-fast
+    // exact-tag discovery documented in RELEASING.md needs push access to be true.
+    expect(preflightJob).toContain('permissions:\n      contents: write')
+    expect(preflightJob).toContain('node scripts/release-github.cjs preflight')
+    expect(jobs.get('assemble-draft')).toContain('permissions:\n      contents: write')
+    for (const name of ['identity', 'source-validate', 'package']) {
+      expect(jobs.get(name), name).not.toContain('contents: write')
+      expect(jobs.get(name), name).not.toContain('release-github.cjs preflight')
+    }
+
+    // The elevated job stays a discovery-only gate: it never builds, packages,
+    // archives, assembles, or uploads, and every packaging job waits on it.
+    expect(preflightJob).not.toMatch(/npm ci|npm run|package:host|release-archive|release-assets|sync-draft|upload-artifact/)
+    expect(preflightJob).toContain('persist-credentials: false')
+    expect(jobs.get('source-validate')).toContain('needs: [identity, preflight]')
+    expect(jobs.get('package')).toContain('needs: [identity, preflight, source-validate]')
   })
 
   it('rejects unsafe fresh-dispatch recovery and keeps reruns on one workflow run identity', () => {
@@ -448,6 +478,46 @@ describe('release workflow security contract', () => {
     expect(workflow).not.toMatch(/npm ci|package:host|package:target|release-archive|release-assets/)
     expect(workflow.match(/contents: write/g)).toHaveLength(1)
     expect(workflow).toContain('actions: read')
+  })
+})
+
+describe('release note references into release administration', () => {
+  const docsRoot = path.join(process.cwd(), 'docs')
+  const administration = fs.readFileSync(path.join(docsRoot, 'release-administration.md'), 'utf8')
+  const notesRoot = path.join(docsRoot, 'releases')
+  const notes = fs.readdirSync(notesRoot).filter((name) => name.endsWith('.md'))
+
+  it('resolves every frozen release-note section pointer, including renamed headings', () => {
+    const pointers = notes.flatMap((name) => {
+      const content = fs.readFileSync(path.join(notesRoot, name), 'utf8').replace(/\s+/g, ' ')
+      return [...content.matchAll(/[Ss]ee "([^"]+)" in \[`\.\.\/release-administration\.md`\]/g)]
+          .map((match) => ({name, section: match[1]}))
+    })
+    const headings = new Set(
+        [...administration.matchAll(/^#{2,6} (.+)$/gm)].map((match) => match[1].trim()))
+
+    // Frozen incident-evidence notes are never edited, so a renamed heading must keep
+    // resolving from the current administration document instead.
+    expect(pointers.map((pointer) => `${pointer.name}: ${pointer.section}`)).toEqual([
+      'v0.2.0-rc.1.md: Canary and recovery evidence',
+      'v0.2.0-rc.2.md: Canary and recovery proof'
+    ])
+    for (const {name, section} of pointers) {
+      const anchor = section.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+      expect(headings.has(section) || administration.includes(`<a id="${anchor}"></a>`), `${name}: ${section}`).toBe(true)
+      expect(administration, `${name}: ${section}`).toContain(section)
+    }
+  })
+
+  it('keeps the renamed section reachable by its former name and anchor', () => {
+    const heading = administration.indexOf('## Canary and recovery evidence')
+    const alias = administration.indexOf('<a id="canary-and-recovery-proof"></a>')
+    const nextHeading = administration.indexOf('\n## ', heading + 1)
+
+    expect(heading).toBeGreaterThan(-1)
+    expect(alias).toBeGreaterThan(heading)
+    expect(alias).toBeLessThan(nextHeading)
+    expect(administration).not.toContain('## Canary and recovery proof')
   })
 })
 
@@ -615,8 +685,87 @@ describe('draft release idempotency', () => {
       .resolves.toBe(matching)
     expect(client.calls.filter((call) => call.url.includes('/releases?')).map((call) => call.url)).toEqual([
       '/repos/owner/repo/releases?per_page=100&page=1',
+      '/repos/owner/repo/releases?per_page=100&page=2',
+      '/repos/owner/repo/releases?per_page=100&page=1',
       '/repos/owner/repo/releases?per_page=100&page=2'
     ])
+  })
+
+  it('acts on a multi-page release list only after two complete snapshots agree', async () => {
+    const client = new FakeClient()
+    const matching = {
+      id: 7,
+      tag_name: tag,
+      name: tag,
+      target_commitish: commit,
+      prerelease: true,
+      draft: true,
+      body: '# Candidate\n',
+      assets: []
+    }
+    const firstPage = Array.from({length: 100}, (_, index) => ({id: 1000 + index, tag_name: `v9.9.${index}`}))
+    client.releasePages = new Map([[1, firstPage], [2, []]])
+
+    // A concurrent deletion earlier in the list shifts the target backward across the
+    // page-100 boundary between the two page fetches, so the first complete walk never
+    // sees the draft. Acting on that walk would create a second same-tag draft; the
+    // agreement requirement retries until two walks match instead.
+    client.beforeList = (requestNumber, fake) => {
+      if (requestNumber >= 2) fake.releasePages = new Map([[1, [...firstPage.slice(1), matching]], [2, []]])
+    }
+
+    await expect(preflight({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .resolves.toBe(matching)
+    expect(client.calls.filter((call) => call.url.includes('/releases?'))).toHaveLength(6)
+    expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+  })
+
+  it('refuses to select or create from a release list that keeps changing', async () => {
+    const churn = (operation: (client: FakeClient) => Promise<unknown>) => {
+      const client = new FakeClient()
+      client.beforeList = (requestNumber, fake) => {
+        fake.releases = [{id: 100 + requestNumber, tag_name: `v9.9.${requestNumber}`, assets: []}]
+      }
+      return {client, result: operation(client)}
+    }
+
+    for (const operation of [
+      (client: FakeClient) => preflight({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}),
+      (client: FakeClient) => syncDraft(
+          {tag, commit, repository: 'owner/repo', assets, sourceRoot: temporaryRoot}, {client}),
+      (client: FakeClient) => publishDraft(
+          {tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client})
+    ]) {
+      const {client, result} = churn(operation)
+      await expect(result).rejects.toThrow(/did not repeat one stable complete snapshot/)
+      expect(client.calls.filter((call) => call.url.includes('/releases?'))).toHaveLength(4)
+      expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+    }
+  })
+
+  it('treats a release duplicated across page boundaries as churn instead of ambiguity', async () => {
+    const client = new FakeClient()
+    const matching = {
+      id: 7,
+      tag_name: tag,
+      name: tag,
+      target_commitish: commit,
+      prerelease: true,
+      draft: true,
+      body: '# Candidate\n',
+      assets: []
+    }
+    // A deletion earlier in the list shifts the target backward across the boundary, so
+    // one walk returns the same release ID on both pages. That must never be reported as
+    // two conflicting same-tag Releases.
+    client.releasePages = new Map([
+      [1, [...Array.from({length: 99}, (_, index) => ({id: 1000 + index, tag_name: `v9.9.${index}`})), matching]],
+      [2, [matching]]
+    ])
+
+    await expect(preflight({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .rejects.toThrow(/did not repeat one stable complete snapshot/)
+    expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
   })
 
   it('fails preflight, synchronization, and publication on multiple exact-tag candidates before writes', async () => {
@@ -705,8 +854,10 @@ describe('draft release idempotency', () => {
       assets: []
     }
     client.release = matching
+    // Request 3 is the first snapshot of the pre-upload recheck, after the initial
+    // agreed discovery and the existing-asset byte checks.
     client.beforeList = (requestNumber, fake) => {
-      if (requestNumber === 2) fake.releases.push({...matching, id: 8})
+      if (requestNumber === 3) fake.releases.push({...matching, id: 8})
     }
 
     await expect(syncDraft({
@@ -883,8 +1034,10 @@ describe('draft release idempotency', () => {
       assets: releaseAssets
     }
     client.release = matching
+    // Every asset already matches, so request 3 is the first snapshot of the final
+    // success recheck: a duplicate appearing there must not be reported as success.
     client.beforeList = (requestNumber, fake) => {
-      if (requestNumber === 2) fake.releases.push({...matching, id: 8})
+      if (requestNumber === 3) fake.releases.push({...matching, id: 8})
     }
 
     await expect(syncDraft({
@@ -1008,7 +1161,7 @@ describe('draft release idempotency', () => {
       html_url: 'https://github.example/runs/123'
     }
     client.beforeList = (requestNumber, fake) => {
-      if (requestNumber === 2) {
+      if (requestNumber === 3) {
         for (const asset of fake.releases[0].assets) asset.digest = `sha256:${'a'.repeat(64)}`
       }
     }
@@ -1045,8 +1198,9 @@ describe('draft release idempotency', () => {
       path: '.github/workflows/release-prepare.yml',
       html_url: 'https://github.example/runs/123'
     }
+    // Request 3 is the first snapshot of the post-verification recheck.
     client.beforeList = (requestNumber, fake) => {
-      if (requestNumber === 2) fake.releases.push({...matching, id: 8})
+      if (requestNumber === 3) fake.releases.push({...matching, id: 8})
     }
 
     await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
