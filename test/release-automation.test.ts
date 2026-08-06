@@ -46,7 +46,7 @@ const {
   publicationUpdate: (tag: string) => {draft: boolean, prerelease: boolean, make_latest: string}
   publishDraft: (options: Record<string, string>, operations: {client: FakeClient}) => Promise<unknown>
   syncDraft: (
-    options: Record<string, string>,
+    options: Record<string, string | number>,
     operations: {client: FakeClient, sleep?: (milliseconds: number) => Promise<void>}
   ) => Promise<unknown>
 }
@@ -155,6 +155,9 @@ class FakeClient {
   afterCreate: ((created: Record<string, any>, client: FakeClient) => void) | null = null
   beforeList: ((requestNumber: number, client: FakeClient) => void) | null = null
   listRequests = 0
+  workflowRuns = new Map<string, Array<Record<string, any>>>()
+  workflowRunRequests = 0
+  beforeWorkflowRuns: ((requestNumber: number, client: FakeClient) => void) | null = null
 
   get release() {
     return this.releases[0] || null
@@ -166,6 +169,16 @@ class FakeClient {
 
   async request(method: string, url: string, options: Record<string, any> = {}) {
     this.calls.push({method, url, options})
+    if (method === 'GET' && url.includes('/actions/workflows/')) {
+      this.workflowRunRequests += 1
+      this.beforeWorkflowRuns?.(this.workflowRunRequests, this)
+      const parsed = new URL(url, 'https://api.github.example')
+      const file = parsed.pathname.match(/\/actions\/workflows\/([^/]+)\/runs$/)?.[1]
+      const page = Number(parsed.searchParams.get('page'))
+      const perPage = Number(parsed.searchParams.get('per_page'))
+      const runs = this.workflowRuns.get(file || '') || []
+      return {total_count: runs.length, workflow_runs: runs.slice((page - 1) * perPage, page * perPage)}
+    }
     if (method === 'GET' && url.includes('/releases/tags/')) return this.tagLookupRelease
     if (method === 'GET' && url.includes('/releases?')) {
       this.listRequests += 1
@@ -386,7 +399,12 @@ describe('release workflow security contract', () => {
     expect(workflow).not.toMatch(/pull_request(?:_target)?:|issue_comment:|branches:/)
     expect(workflow.match(/^permissions:\n  contents: read$/m)).not.toBeNull()
     expect(workflow.match(/contents: write/g)).toHaveLength(2)
-    expect(workflow.match(/^    permissions:\n      contents: write$/gm)).toHaveLength(2)
+    // Still exactly two contents-writing jobs. Draft assembly additionally reads this
+    // repository's own workflow runs so it can refuse while a publication for the same
+    // tag is live, so its block is the read-then-write form rather than a third writer.
+    expect(workflow.match(/^    permissions:\n      contents: write$/gm)).toHaveLength(1)
+    expect(workflow.match(/^    permissions:\n      actions: read\n      contents: write$/gm)).toHaveLength(1)
+    expect(workflow.match(/^      actions: read$/gm)).toHaveLength(1)
     expect(workflow).not.toContain('id-token: write')
     expect(workflow).toContain('cancel-in-progress: false')
     expect(workflow).toContain('runner: macos-15\n            platform: darwin\n            arch: arm64')
@@ -407,7 +425,7 @@ describe('release workflow security contract', () => {
     // exact-tag discovery documented in RELEASING.md needs push access to be true.
     expect(preflightJob).toContain('permissions:\n      contents: write')
     expect(preflightJob).toContain('node scripts/release-github.cjs preflight')
-    expect(jobs.get('assemble-draft')).toContain('permissions:\n      contents: write')
+    expect(jobs.get('assemble-draft')).toContain('permissions:\n      actions: read\n      contents: write')
     for (const name of ['identity', 'source-validate', 'package']) {
       expect(jobs.get(name), name).not.toContain('contents: write')
       expect(jobs.get(name), name).not.toContain('release-github.cjs preflight')
@@ -480,6 +498,39 @@ describe('release workflow security contract', () => {
     expect(prepare).toContain('ELECTRIS_CANARY_FAIL_TARGET: ${{ vars.ELECTRIS_CANARY_FAIL_TARGET }}')
     expect(prepare).toContain('ELECTRIS_CANARY_STOP_AFTER_UPLOAD: ${{ vars.ELECTRIS_CANARY_STOP_AFTER_UPLOAD }}')
     expect(publish).not.toMatch(/ELECTRIS_CANARY_|vars\./)
+  })
+
+  it('keeps both per-tag concurrency groups and their no-cancel policy unchanged', () => {
+    const prepare = fs.readFileSync(path.join(workflowsRoot, 'release-prepare.yml'), 'utf8')
+    const publish = fs.readFileSync(path.join(workflowsRoot, 'release-publish.yml'), 'utf8')
+
+    // The two groups are deliberately distinct. Sharing one would serialize preparation
+    // against publication by queueing, and a publication waiting for environment approval
+    // holds its slot far longer than the target artifacts a queued preparation rerun
+    // needs. Active-run refusal replaces that queue; the groups must not drift into it.
+    expect(prepare).toContain('concurrency:\n  group: release-prepare-${{ github.ref_name }}\n  cancel-in-progress: false\n')
+    expect(publish).toContain('concurrency:\n  group: release-publish-${{ inputs.tag }}\n  cancel-in-progress: false\n')
+    for (const workflow of [prepare, publish]) {
+      expect(workflow.match(/^concurrency:$/gm)).toHaveLength(1)
+      expect(workflow.match(/cancel-in-progress: false/g)).toHaveLength(1)
+      expect(workflow).not.toContain('cancel-in-progress: true')
+      expect(workflow).not.toContain('queue:')
+    }
+  })
+
+  it('gives draft assembly its own run identity so the publication guard cannot self-reject', () => {
+    const workflow = fs.readFileSync(path.join(workflowsRoot, 'release-prepare.yml'), 'utf8')
+    const assembleJob = workflow.slice(workflow.indexOf('  assemble-draft:'))
+    const syncArguments = assembleJob.slice(assembleJob.indexOf('node scripts/release-github.cjs sync-draft'))
+        .split('\n').map((line) => line.trim()).filter((line) => line.startsWith('"--'))
+
+    expect(syncArguments).toEqual([
+      '"--tag=$RELEASE_TAG"',
+      '"--commit=$RELEASE_SHA"',
+      '"--repository=$GITHUB_REPOSITORY"',
+      '"--assets=release-assets"',
+      '"--run-id=${{ github.run_id }}"'
+    ])
   })
 
   it('makes publication dispatch-only, environment-gated, and rebuild-free', () => {
@@ -1051,6 +1102,9 @@ describe('draft release idempotency', () => {
           async text() { return JSON.stringify(body) },
           async arrayBuffer() { return Buffer.alloc(0) }
         })
+        if (options.method === 'GET' && String(url).includes('/actions/workflows/release-publish.yml/runs')) {
+          return response(200, {total_count: 0, workflow_runs: []})
+        }
         if (options.method === 'GET' && String(url).includes('/releases?')) {
           return response(200, release ? [release] : [])
         }
@@ -1071,7 +1125,8 @@ describe('draft release idempotency', () => {
       `--tag=${tag}`,
       `--commit=${commit}`,
       '--repository=owner/repo',
-      `--assets=${assets}`
+      `--assets=${assets}`,
+      '--run-id=31067550562'
     ], {
       cwd: temporaryRoot,
       encoding: 'utf8',
@@ -1557,6 +1612,243 @@ describe('draft release idempotency', () => {
     }, {client})).rejects.toThrow(/unexpected assets/)
     expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
     expect(client.release.assets).toEqual([{name: 'unexpected.bin', size: 1, url: 'asset://extra'}])
+  })
+})
+
+describe('bidirectional active-run refusal between preparation and publication', () => {
+  const preparePath = '.github/workflows/release-prepare.yml'
+  const publishPath = '.github/workflows/release-publish.yml'
+  // GitHub's workflow-run status enum has grown over time, so the guard tests
+  // terminality as `completed` rather than matching an allowlist of active states. Each
+  // of these must refuse on its own, not merely one representative value.
+  const nonTerminalStatuses = ['queued', 'in_progress', 'waiting', 'pending', 'requested']
+  let temporaryRoot: string
+  let assets: string
+
+  const wrote = (client: FakeClient) =>
+    client.calls.some((call) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(call.method))
+  const downloaded = (client: FakeClient) => client.calls.some((call) => call.url.startsWith('asset://'))
+  const patched = (client: FakeClient) => client.calls.filter((call) => call.method === 'PATCH').map((call) => call.url)
+  const run = (values: Record<string, unknown> = {}) =>
+    ({id: 31067550562, head_branch: tag, path: preparePath, status: 'completed', ...values})
+
+  function publishableClient() {
+    const client = new FakeClient()
+    const releaseAssets = fs.readdirSync(assets).sort().map((name, index) => {
+      const bytes = fs.readFileSync(path.join(assets, name))
+      const url = `asset://active-run-${index}`
+      client.bytes.set(url, bytes)
+      return {id: 20 + index, name, size: bytes.length, url}
+    })
+    client.release = {
+      id: 7,
+      tag_name: tag,
+      name: tag,
+      target_commitish: commit,
+      prerelease: true,
+      draft: true,
+      body: '# Candidate\n',
+      assets: releaseAssets
+    }
+    client.run = {
+      head_sha: commit,
+      conclusion: 'success',
+      event: 'push',
+      path: preparePath,
+      html_url: 'https://github.example/runs/123'
+    }
+    return client
+  }
+
+  const publish = (client: FakeClient) =>
+    publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client})
+
+  beforeEach(() => {
+    temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'electris-release-active-run-'))
+    assets = path.join(temporaryRoot, 'release')
+    assembleReleaseAssets({input: createStaging(temporaryRoot), output: assets, tag, commit})
+    writeFile(path.join(temporaryRoot, 'docs', 'releases', `${tag}.md`), '# Candidate\n')
+  })
+  afterEach(() => fs.rmSync(temporaryRoot, {recursive: true, force: true}))
+
+  it('refuses to publish while a preparation run for the exact tag is still running', async () => {
+    const client = publishableClient()
+    client.workflowRuns.set('release-prepare.yml', [run({status: 'in_progress'})])
+
+    await expect(publish(client))
+      .rejects.toThrow(/Refusing to act on v0\.2\.0-rc\.2 while release-prepare\.yml run 31067550562 \(in_progress\) is not terminal/)
+    // The rerun this refuses against is mutating the asset set publication would verify,
+    // so nothing may be written and nothing may even be downloaded for comparison.
+    expect(wrote(client)).toBe(false)
+    expect(downloaded(client)).toBe(false)
+    expect(client.calls.filter((call) => call.url.includes('/releases?'))).toHaveLength(0)
+  })
+
+  it.each(nonTerminalStatuses)('refuses to publish on the non-terminal preparation status %s', async (status) => {
+    const client = publishableClient()
+    client.workflowRuns.set('release-prepare.yml', [run({status})])
+
+    await expect(publish(client)).rejects.toThrow(new RegExp(`31067550562 \\(${status}\\) is not terminal`))
+    expect(wrote(client)).toBe(false)
+  })
+
+  it('names every non-terminal preparation run rather than only the first', async () => {
+    const client = publishableClient()
+    client.workflowRuns.set('release-prepare.yml', [
+      run({id: 1, status: 'in_progress'}),
+      run({id: 2, status: 'completed'}),
+      run({id: 3, status: 'waiting'})
+    ])
+
+    await expect(publish(client))
+      .rejects.toThrow(/release-prepare\.yml runs 1 \(in_progress\), 3 \(waiting\) are not terminal/)
+    expect(wrote(client)).toBe(false)
+  })
+
+  it('publishes when every preparation run for the tag has reached a terminal status', async () => {
+    const client = publishableClient()
+    client.workflowRuns.set('release-prepare.yml', [run({status: 'completed'})])
+
+    await expect(publish(client)).resolves.toMatchObject({draft: false, prerelease: true, make_latest: 'false'})
+    expect(patched(client)).toEqual(['/repos/owner/repo/releases/7'])
+  })
+
+  it('ignores a running preparation run for a different tag', async () => {
+    const client = publishableClient()
+    // Exact head_branch equality, not a prefix test: rc.20 is a different candidate.
+    client.workflowRuns.set('release-prepare.yml', [run({head_branch: `${tag}0`, status: 'in_progress'})])
+
+    await expect(publish(client)).resolves.toMatchObject({draft: false})
+    expect(patched(client)).toEqual(['/repos/owner/repo/releases/7'])
+  })
+
+  it('ignores a running run of another workflow at the same tag', async () => {
+    const client = publishableClient()
+    // Exact workflow-path identity, not a prefix test: a neighbouring path that merely
+    // starts with the preparation workflow file is a different workflow.
+    client.workflowRuns.set('release-prepare.yml', [
+      run({id: 41, path: publishPath, status: 'in_progress'}),
+      run({id: 42, path: `${preparePath}.disabled`, status: 'in_progress'}),
+      run({id: 43, path: '.github/workflows/pull-request.yml', status: 'in_progress'})
+    ])
+
+    await expect(publish(client)).resolves.toMatchObject({draft: false})
+    expect(patched(client)).toEqual(['/repos/owner/repo/releases/7'])
+  })
+
+  it('accepts a preparation run reported in the called-workflow reference form', async () => {
+    const client = publishableClient()
+    client.workflowRuns.set('release-prepare.yml', [run({path: `${preparePath}@refs/tags/${tag}`, status: 'queued'})])
+
+    await expect(publish(client)).rejects.toThrow(/31067550562 \(queued\) is not terminal/)
+    expect(wrote(client)).toBe(false)
+  })
+
+  it('rechecks immediately before the publication write and refuses a rerun started meanwhile', async () => {
+    const client = publishableClient()
+    client.workflowRuns.set('release-prepare.yml', [run({status: 'completed'})])
+    // The first listing is the pre-verification check; verification takes long enough for
+    // an operator to start a rerun, so the second listing is the one that must catch it.
+    client.beforeWorkflowRuns = (requestNumber, fake) => {
+      if (requestNumber === 2) fake.workflowRuns.set('release-prepare.yml', [run({status: 'in_progress'})])
+    }
+
+    await expect(publish(client)).rejects.toThrow(/31067550562 \(in_progress\) is not terminal/)
+    expect(client.workflowRunRequests).toBe(2)
+    expect(patched(client)).toEqual([])
+    expect(wrote(client)).toBe(false)
+  })
+
+  it('reads every page of the workflow run list before deciding nothing is active', async () => {
+    const client = publishableClient()
+    client.workflowRuns.set('release-prepare.yml', [
+      ...Array.from({length: 100}, (_, index) => run({id: 1000 + index, head_branch: `v9.9.${index}`})),
+      run({status: 'in_progress'})
+    ])
+
+    await expect(publish(client)).rejects.toThrow(/31067550562 \(in_progress\) is not terminal/)
+    expect(client.calls.filter((call) => call.url.includes('/actions/workflows/')).map((call) => call.url)).toEqual([
+      '/repos/owner/repo/actions/workflows/release-prepare.yml/runs?per_page=100&page=1',
+      '/repos/owner/repo/actions/workflows/release-prepare.yml/runs?per_page=100&page=2'
+    ])
+    expect(wrote(client)).toBe(false)
+  })
+
+  it('refuses to assemble a draft while a publication run for the exact tag is not terminal', async () => {
+    for (const status of nonTerminalStatuses) {
+      const client = new FakeClient()
+      client.workflowRuns.set('release-publish.yml', [run({id: 31076244826, path: publishPath, status})])
+
+      await expect(syncDraft({
+        tag,
+        commit,
+        repository: 'owner/repo',
+        assets,
+        sourceRoot: temporaryRoot,
+        runId: '31067550562'
+      }, {client})).rejects.toThrow(new RegExp(`release-publish\\.yml run 31076244826 \\(${status}\\) is not terminal`))
+      // A publication awaiting environment approval is exactly the case this protects, so
+      // no create, no upload, and no other write may happen first.
+      expect(wrote(client)).toBe(false)
+      expect(client.calls.some((call) => call.url.startsWith('https://uploads.github.com/'))).toBe(false)
+      expect(client.calls.filter((call) => call.url.includes('/releases?'))).toHaveLength(0)
+    }
+  })
+
+  it('never refuses draft assembly against the run issuing the check', async () => {
+    const client = new FakeClient()
+    client.workflowRuns.set('release-publish.yml', [
+      run({id: 31067550562, path: publishPath, status: 'in_progress'}),
+      run({id: 31076244826, path: publishPath, status: 'completed'})
+    ])
+
+    await syncDraft({
+      tag,
+      commit,
+      repository: 'owner/repo',
+      assets,
+      sourceRoot: temporaryRoot,
+      runId: 31067550562
+    }, {client})
+    expect(client.release?.assets.map((asset: ApiAsset) => asset.name).sort()).toEqual(fs.readdirSync(assets).sort())
+  })
+
+  it('assembles a draft when the only publication run for the tag is terminal', async () => {
+    const client = new FakeClient()
+    client.workflowRuns.set('release-publish.yml', [
+      run({id: 31076244826, path: publishPath, status: 'completed'}),
+      run({id: 31076244827, path: publishPath, head_branch: `${tag}0`, status: 'in_progress'})
+    ])
+
+    await syncDraft({
+      tag,
+      commit,
+      repository: 'owner/repo',
+      assets,
+      sourceRoot: temporaryRoot,
+      runId: '31067550562'
+    }, {client})
+    expect(client.release?.assets.map((asset: ApiAsset) => asset.name).sort()).toEqual(fs.readdirSync(assets).sort())
+    expect(client.calls.filter((call) => call.url.includes('/actions/workflows/')).map((call) => call.url))
+      .toEqual(['/repos/owner/repo/actions/workflows/release-publish.yml/runs?per_page=100&page=1'])
+  })
+
+  it('requires the caller run identity for draft synchronization and rejects it elsewhere', () => {
+    const cli = (args: string[]) => spawnSync(process.execPath, [
+      path.join(process.cwd(), 'scripts', 'release-github.cjs'),
+      ...args
+    ], {cwd: temporaryRoot, encoding: 'utf8', env: {...process.env, GITHUB_TOKEN: 'test-token'}})
+    const identity = [`--tag=${tag}`, `--commit=${commit}`, '--repository=owner/repo']
+
+    for (const args of [
+      ['sync-draft', ...identity, `--assets=${assets}`],
+      ['publish', ...identity, '--run-id=1'],
+      ['preflight', ...identity, '--run-id=1']
+    ]) {
+      const result = cli(args)
+      expect(result.status, args.join(' ')).toBe(2)
+      expect(result.stderr, args.join(' ')).toMatch(/^Usage: release:github/)
+    }
   })
 })
 

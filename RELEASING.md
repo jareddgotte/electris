@@ -90,6 +90,17 @@ Existing assets are downloaded and hash-compared before any missing asset is wri
 missing assets are uploaded, while unexpected or different bytes stop the run. Raw
 `dist/` directories are never uploaded.
 
+Assembly also refuses, before it discovers or creates anything, while any
+`release-publish.yml` run for the exact tag has not reached a terminal status —
+including one still waiting for environment approval. The refusal names each such run
+and its status, and it never reports success. It reads workflow runs only; the job
+carries `actions: read` alongside its existing `contents: write` for that reason. This
+is deliberately a refusal and not a queue: publication has priority, because a refused
+assembly is recoverable by rerunning that same run while a cancelled or superseded
+publication needs fresh authorization. The operator's remedy is to cancel the
+unapproved publication run or to wait for it to be approved and complete; both are
+visible acts. See "Concurrent preparation and publication" below.
+
 Preparation still contains two inert-by-default, fail-only repository-variable canary
 hooks hard-coded to `v0.2.0-rc.2`. Both variables are absent. The rc.2 partial-upload
 and fresh-dispatch incident disproved the old recovery procedure, and the immutable
@@ -138,6 +149,8 @@ After environment approval, it revalidates tag/package/lock/note/ancestry identi
 
 Because the recovery path deliberately reruns the same run, that run's success is judged per attempt rather than by its latest attempt alone. GitHub's run object reports only the latest attempt, so a later rerun that fails would otherwise permanently block a complete draft an earlier attempt of the same run assembled. Publication accepts a successful conclusion on **any** attempt of the manifest's run, and every other check stays exactly as strict: the run must still be that one manifest-named run, an allowed tag-push preparation of the exact commit, and it must have stopped, so a run that is still active or that never succeeded on any attempt is refused. Each earlier attempt consulted must itself describe that same run and commit; a missing, unreadable, or inconsistent attempt record fails closed. Asset bytes, names, manifest, and checksums are verified independently and are not relaxed by this. It never rebuilds or replaces bytes. Prereleases remain prereleases and do not replace the latest stable release; a stable release becomes latest.
 
+Publication additionally refuses while any `release-prepare.yml` run for the exact tag has not reached a terminal status. It checks twice: once before downloading anything, so a live preparation rerun costs nothing, and again immediately before the single write that publishes the draft. A refusal names each non-terminal run and its status, fails the run, and consumes nothing — the authorization stands and the dispatch may be repeated once the preparation run is terminal.
+
 Before authorizing publication, manually review the committed notes, prepare run, target evidence, exact draft downloads, unsigned warnings, and every readiness gate. After publication, download the public assets, recheck SHA-256, extract/verify, and run the bounded package smoke on each claimed host. Use the hosted verification below rather than an ad-hoc operator host.
 
 ## Post-publication verification
@@ -156,6 +169,14 @@ Its two jobs run on the claimed public target hosts, `ubuntu-latest` for Linux x
 It publishes nothing and mutates nothing. `GITHUB_TOKEN` stays read-only and is used only to read the release list, no job enters an environment or reads a secret, and no step creates, updates, deletes, tags, signs, or uploads a release or asset. Each target retains only its compact JSON verification records for seven days; the downloaded assets and extracted packages stay runner-local and expire with the job.
 
 The bounded smoke asserts a matching host, so a target is verified only by its own job. Package verification compares the packaged tracked text assets against the checkout's copies, and both are subject to the runner's line-ending configuration, so a Windows job is self-consistent with a Windows checkout and cannot by itself detect line-ending drift between hosts. Read the two job logs and JSON records; this evidence covers exactly the release ID it names and authorizes no support claim.
+
+## Concurrent preparation and publication
+
+GitHub concurrency groups are repository-wide, but preparation and publication declare deliberately distinct per-tag groups, so GitHub never serializes one against the other. They are not merged into one group on purpose: a shared group queues rather than refuses, a publication awaiting environment approval can hold its slot for up to 30 days, and the `release-target-*` artifacts a preparation rerun depends on expire after 14 — so a queued rerun would starve past artifact expiry and fail, which is precisely the same-run recovery contract this project exists to protect. A queued run can also be cancelled and replaced when a newer run joins its group. Refusal keeps both properties: nothing is ever queued, so an authorized publication can never be silently cancelled or superseded.
+
+**This narrows the race; it does not close it.** Each side reads the other's workflow runs and then acts, so an interleaving remains possible in the interval between a check and the write that follows it, plus whatever staleness GitHub's workflow-run list carries — GitHub documents no freshness guarantee for it. Publication's re-check sits immediately before its only write to keep that interval as small as possible, and the existing exact-asset-set verification, release-ID rebind, asset-inventory recheck, and refusal to modify a published release all still apply underneath. Do not read this as a mechanical guarantee that the two workflows cannot overlap.
+
+The operator rule is unchanged and still load-bearing: wait for a preparation rerun attempt to reach a terminal conclusion before another operation on that tag. Where an unapproved publication run blocks a needed preparation rerun, cancel that publication run or wait for its approval; do not work around the refusal. The full operator contract is in [`docs/release-administration.md`](docs/release-administration.md).
 
 ## Failure recovery and rollback
 
