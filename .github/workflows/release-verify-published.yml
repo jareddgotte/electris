@@ -92,6 +92,7 @@ jobs:
 
       - name: Revalidate immutable source identity of the selected tag
         id: identity
+        shell: bash
         env:
           RELEASE_TAG: ${{ inputs.tag }}
         run: node scripts/release-identity.cjs "--tag=$RELEASE_TAG"

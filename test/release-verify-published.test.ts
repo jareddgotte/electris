@@ -501,6 +501,26 @@ describe('published release verification workflow contract', () => {
     return content.split('\n').filter((line) => line.includes(fragment))
   }
 
+  // Split the matrix job into its steps so each one can be checked on its own terms
+  // rather than by counting fragments across the whole file.
+  function workflowSteps() {
+    const body = workflow.slice(workflow.indexOf('    steps:'))
+    const starts = [...body.matchAll(/^ {6}- name: (.+)$/gm)]
+    return starts.map((start, index) => {
+      const block = body.slice(start.index as number,
+          index + 1 < starts.length ? starts[index + 1].index as number : body.length)
+      const run = block.match(/^ {8}run: [\s\S]*$/m)?.[0] || ''
+      return {
+        name: start[1],
+        declaresBash: /^ {8}shell: bash$/m.test(block),
+        linuxOnly: block.includes("if: matrix.platform == 'linux'"),
+        // GitHub substitutes ${{ }} expressions before any shell sees the command, so
+        // only what survives that substitution can be expanded by the runner's shell.
+        shellSource: run.replace(/\$\{\{[^}]*\}\}/g, '')
+      }
+    })
+  }
+
   it('is manual-only and rejects every ref and workflow source except protected master', () => {
     expect(workflow).toMatch(/^on:\n  workflow_dispatch:\n/m)
     expect(workflow).not.toMatch(/\n {2}(?:push|pull_request|pull_request_target|issue_comment|schedule):/)
@@ -524,11 +544,10 @@ describe('published release verification workflow contract', () => {
     expect(workflow).toContain('      release_id:\n        description: Exact GitHub Release ID')
     expect(selector).toContain("'verify ' + tag + ' ' + id")
     expect(selector).toContain('!/^[1-9][0-9]*\\$/.test(id)')
-    // The escaped SemVer pattern and $GITHUB_OUTPUT append only behave identically on
-    // every runner under an explicit shell, so the guard cannot silently weaken on
-    // Windows before any repository code has been selected.
+    // The escaped SemVer pattern only behaves identically on every runner under an
+    // explicit shell, so the guard cannot silently weaken on Windows before any
+    // repository code has been selected.
     expect(selector).toContain('shell: bash')
-    expect(matchingLines(workflow, 'shell: bash')).toHaveLength(2)
     expect(workflow.indexOf('- name: Validate selector')).toBeLessThan(workflow.indexOf('uses: actions/checkout@'))
     // Neither raw dispatch input reaches a run command; later steps consume only the
     // validated selector output and the script-validated release identity outputs.
@@ -536,6 +555,33 @@ describe('published release verification workflow contract', () => {
     expect(runSteps).not.toContain('inputs.release_id')
     expect(runSteps).not.toContain('inputs.confirmation')
     expect(matchingLines(runSteps, 'inputs.tag').every((line) => /RELEASE_TAG:|ref: refs\/tags\//.test(line))).toBe(true)
+  })
+
+  it('declares bash on every cross-platform step whose command a shell would expand', () => {
+    // windows-latest runs `run:` under pwsh, where an env: value is $env:NAME and a
+    // bare $NAME silently expands to the empty string instead of failing. A step that
+    // relies on shell expansion, command substitution, or backslash escapes therefore
+    // has to name bash, or it quietly does something different on the Windows leg than
+    // it does on the Linux one.
+    const expandsInShell = /\$[A-Za-z_({]|\\/
+    const steps = workflowSteps()
+    expect(steps.length).toBeGreaterThan(10)
+
+    const needBash = steps.filter((step) => !step.linuxOnly && expandsInShell.test(step.shellSource))
+    expect(needBash.map((step) => step.name)).toEqual([
+      'Validate selector and explicit confirmation before checkout',
+      'Establish trusted tag ancestry before running selected code',
+      'Revalidate immutable source identity of the selected tag'
+    ])
+    for (const step of needBash) {
+      expect(step.declaresBash, `${step.name} must declare shell: bash`).toBe(true)
+    }
+
+    // Everything else passes its arguments as already-substituted ${{ }} expressions, so
+    // no host shell rewrites a release path and the default shell stays safe.
+    for (const step of steps.filter((candidate) => !candidate.declaresBash)) {
+      expect(step.shellSource, `${step.name} must not rely on shell expansion`).not.toMatch(expandsInShell)
+    }
   })
 
   it('keeps permissions, credentials, environments, and secrets read-only', () => {
