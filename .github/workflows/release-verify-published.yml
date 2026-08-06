@@ -1,0 +1,167 @@
+name: Verify published release
+
+# Post-publication verification only. This workflow downloads an already-published
+# release, proves its public asset set, and runs the repository-owned bounded package
+# smoke on each claimed native host. It creates, updates, deletes, and publishes
+# nothing: the token stays read-only, no job enters an environment, and no step uses a
+# secret. Every check fails the run rather than warning.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact published strict-SemVer tag to verify
+        required: true
+        type: string
+      release_id:
+        description: Exact GitHub Release ID of that published release
+        required: true
+        type: string
+      confirmation:
+        description: Type "verify <tag> <release_id>" to confirm the selected release
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-verify-published-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify published ${{ matrix.platform }}/${{ matrix.arch }}
+    if: >-
+      github.ref == 'refs/heads/master' &&
+      github.event.repository.default_branch == 'master' &&
+      github.workflow_ref == format('{0}/.github/workflows/release-verify-published.yml@refs/heads/master', github.repository)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux
+            arch: x64
+          - runner: windows-latest
+            platform: win32
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    steps:
+      - name: Validate selector and explicit confirmation before checkout
+        id: selector
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_ID: ${{ inputs.release_id }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: node -e "const tag = process.env.RELEASE_TAG, id = process.env.RELEASE_ID; if (!/^v(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*))*))?\$/.test(tag) || !/^[1-9][0-9]*\$/.test(id) || process.env.CONFIRMATION !== 'verify ' + tag + ' ' + id) throw new Error('Selector and confirmation must exactly identify one strict SemVer tag and one published release ID'); require('fs').appendFileSync(process.env.GITHUB_OUTPUT, 'release-id=' + id + '\n')"
+
+      - name: Check out the selected existing tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Establish trusted tag ancestry before running selected code
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          tag_sha=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
+          test "$(git rev-parse HEAD)" = "$tag_sha"
+          git merge-base --is-ancestor HEAD refs/remotes/origin/master
+
+      - name: Use declared Node version
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Use declared npm version
+        run: npm install --global npm@11.19.0
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Assert exact native runner target
+        env:
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: node -e "if (process.platform !== process.env.EXPECTED_PLATFORM || process.arch !== process.env.EXPECTED_ARCH) throw new Error('Runner is ' + process.platform + '/' + process.arch + ', expected ' + process.env.EXPECTED_PLATFORM + '/' + process.env.EXPECTED_ARCH)"
+
+      - name: Revalidate immutable source identity of the selected tag
+        id: identity
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: node scripts/release-identity.cjs "--tag=$RELEASE_TAG"
+
+      - name: Download the exact published release by tag and release ID
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          node scripts/release-verify-published.cjs download
+          "--tag=${{ steps.identity.outputs.tag }}"
+          "--release-id=${{ steps.selector.outputs.release-id }}"
+          "--repository=${{ github.repository }}"
+          "--output=published-release-assets"
+          "--records=verification-records"
+
+      - name: Verify public asset names, checksums, and manifest
+        run: >-
+          node scripts/release-assets.cjs
+          "--dir=published-release-assets"
+          "--tag=${{ steps.identity.outputs.tag }}"
+          "--commit=${{ steps.identity.outputs.sha }}"
+
+      - name: Safely extract the verified public archive for this target
+        id: extract
+        run: >-
+          node scripts/release-verify-published.cjs extract
+          "--tag=${{ steps.identity.outputs.tag }}"
+          "--commit=${{ steps.identity.outputs.sha }}"
+          "--target=${{ matrix.platform }}-${{ matrix.arch }}"
+          "--dir=published-release-assets"
+          "--output=published-release-extract"
+
+      - name: Verify the extracted published package before launch
+        run: node scripts/package-verify.cjs "${{ steps.extract.outputs.package-path }}"
+
+      - name: Allow only the published Linux Electron binary to use user namespaces
+        if: matrix.platform == 'linux'
+        run: |
+          cat <<EOF | sudo tee /etc/apparmor.d/electris-electron-published-release-smoke
+          abi <abi/4.0>,
+          include <tunables/global>
+
+          profile electris-electron-published-release-smoke ${{ steps.extract.outputs.package-path }}/electris flags=(unconfined) {
+            userns,
+            include if exists <local/electris-electron-published-release-smoke>
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/electris-electron-published-release-smoke
+
+      - name: Run the documented bounded package smoke on this native host
+        run: node scripts/package-smoke.cjs "${{ steps.extract.outputs.package-path }}"
+
+      - name: Verify the extracted published package after launch
+        run: node scripts/package-verify.cjs "${{ steps.extract.outputs.package-path }}"
+
+      - name: Write compact published-release verification record
+        run: >-
+          node scripts/release-verify-published.cjs record
+          "--tag=${{ steps.identity.outputs.tag }}"
+          "--release-id=${{ steps.selector.outputs.release-id }}"
+          "--commit=${{ steps.identity.outputs.sha }}"
+          "--runner=${{ matrix.runner }}"
+          "--artifact=${{ steps.extract.outputs.package-path }}"
+          "--records=verification-records"
+
+      - name: Retain compact verification records only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: published-release-verification-${{ matrix.platform }}-${{ matrix.arch }}
+          path: verification-records/*.json
+          if-no-files-found: error
+          retention-days: 7
