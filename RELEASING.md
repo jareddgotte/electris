@@ -7,7 +7,7 @@ Electris has no current supported release. Historical 2018 assets remain unsuppo
 - An immutable strict-SemVer tag prepares a draft. Ordinary branch pushes, merges, pull requests, forks, comments, and arbitrary SHAs cannot do so.
 - Preparation and publication require separate captain authorization. Publication is a manual dispatch that revalidates and publishes the existing draft without rebuilding it.
 - `package.json#version` is the single editable version source. Use `npm version --no-git-tag-version <version>` so npm mirrors it into both required lockfile fields, then add `docs/releases/v<version>.md` in the same proposal.
-- The failed, unpublished `v0.2.0-rc.1` and `v0.2.0-rc.2` candidates are retained as incident evidence. Any successor version and tag require a separate reviewed proposal and captain authorization; release-automation implementation does not create either.
+- The failed, unpublished `v0.2.0-rc.1` and `v0.2.0-rc.2` candidates are retained as incident evidence. `v0.2.0-rc.3` is the currently proposed successor candidate: a committed version and note only, with no tag, workflow run, draft, GitHub Release, or asset set. Any successor version and tag require a separate reviewed proposal and captain authorization; release-automation implementation does not create either.
 - Tags use `vX.Y.Z` or strict SemVer prereleases such as `vX.Y.Z-rc.N`. Build metadata and leading-zero forms are rejected. Existing `v0.1.0` through `v0.1.2` are immutable archives and may never be reused.
 
 The full SemVer remains the tag, package, application, notes, record, artifact, manifest, and GitHub Release identity. Native build-version fields use the numeric `X.Y.Z` core because operating-system metadata restricts that field; it is not an independent release version.
@@ -83,8 +83,10 @@ Preparation still contains two inert-by-default, fail-only repository-variable c
 hooks hard-coded to `v0.2.0-rc.2`. Both variables are absent. The rc.2 partial-upload
 and fresh-dispatch incident disproved the old recovery procedure, and the immutable
 rc.2 tag cannot acquire this correction. Do not set either rc.2 value or rerun either
-rc workflow. The preserved rc.1/rc.2 evidence and successor-only operator contract are
-in [`docs/release-administration.md`](docs/release-administration.md).
+rc workflow. The proposed `v0.2.0-rc.3` candidate does not retarget these hooks; a
+successor canary is a separate focused change. The preserved rc.1/rc.2 evidence and
+successor-only operator contract are in
+[`docs/release-administration.md`](docs/release-administration.md).
 
 Linux's workflow AppArmor profiles grant `userns` only to the exact installed or packaged Electron executable and do not disable Electron's sandbox. All Electron launches use repository-owned bounded smoke harnesses.
 

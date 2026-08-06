@@ -88,6 +88,14 @@ contain this corrected workflow before its separately authorized immutable tag i
 created. A new `workflow_dispatch`, repeated tag event, newer-branch run, or rebuilt
 asset set is not recovery.
 
+`v0.2.0-rc.3` is the currently proposed successor candidate, under
+[issue 61](https://github.com/jareddgotte/electris/issues/61). The corrected workflow
+is already on protected `master` through
+[PR 60](https://github.com/jareddgotte/electris/pull/60), so a separately authorized
+rc.3 tag would carry it. That proposal commits a version and note only: it creates no
+tag, workflow run, draft, GitHub Release, or asset set, and it changes nothing about
+the retained rc.1 and rc.2 evidence above.
+
 GitHub rerun attempts retain the workflow run ID. Successful package jobs retain their
 `release-target-*` artifacts for 14 days; rerunning failed jobs and their dependents in
 the same run lets assembly download those exact archives and fragments. Because every
