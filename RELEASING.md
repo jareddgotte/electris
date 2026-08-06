@@ -75,9 +75,20 @@ mid-walk, discovery repeats the complete list and acts only after two consecutiv
 snapshots agree on the same ordered, duplicate-free release IDs; sustained churn
 fails the operation instead of selecting from an unstable list. After creation,
 synchronization rechecks exact-tag uniqueness and the created release ID before any
-asset upload and again before reporting success. Existing assets are downloaded and
-hash-compared before any missing asset is written; missing assets are uploaded, while
-unexpected or different bytes stop the run. Raw `dist/` directories are never uploaded.
+asset upload and again before reporting success.
+
+That list is eventually consistent, and GitHub does not document the lag. A create
+response is authoritative for existence; the release list is authoritative only for
+uniqueness. So once a release ID is held, a list that omits it is stale rather than
+evidence the release is gone: rediscovery retries on a bounded escalating schedule of
+six attempts across 23 seconds, well past the longest lag observed here or upstream.
+Every other outcome stays immediately fatal and unretried — a different exact-tag
+release ID, multiple exact-tag matches, and sustained list churn — and exhausting the
+schedule fails closed with no upload, leaving a draft that a same-run rerun completes.
+
+Existing assets are downloaded and hash-compared before any missing asset is written;
+missing assets are uploaded, while unexpected or different bytes stop the run. Raw
+`dist/` directories are never uploaded.
 
 Preparation still contains two inert-by-default, fail-only repository-variable canary
 hooks hard-coded to `v0.2.0-rc.2`. Both variables are absent. The rc.2 partial-upload

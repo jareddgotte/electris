@@ -111,13 +111,42 @@ async function findRelease(client, repository, tag) {
   return matches[0] || null
 }
 
-async function findBoundRelease(client, repository, tag, expectedId) {
-  const release = await findRelease(client, repository, tag)
-  if (!release) throw new Error(`GitHub Release disappeared for exact tag ${tag}`)
-  if (releaseId(release) !== expectedId) {
-    throw new Error(`GitHub Release ID changed for exact tag ${tag}; expected ${expectedId}, found ${release.id}`)
+// GitHub's release list is eventually consistent and its lag is undocumented. Every
+// caller here already holds a release ID it created or already discovered, so the list
+// cannot report that release out of existence: absence only means the replica served has
+// not caught up yet. The stability guard above cannot see that, because two reads of the
+// same stale replica agree with each other. Retry the discovery, never the create, until
+// the bound ID appears. Observed lag was 2.15s here and over 5s upstream, so six attempts
+// spanning a 23-second budget clear both measurements and stay far inside the assembly
+// job's ten-minute timeout. Every other outcome stays fail-closed and unretried: a
+// different exact-tag release ID means a genuine duplicate, because the bound release
+// provably exists; multiple exact-tag matches already failed in findRelease; sustained
+// list churn already failed in listReleases; and exhaustion refuses to proceed rather
+// than upload without ever having proved uniqueness.
+const boundReleaseVisibilityDelaysMs = [1000, 2000, 4000, 8000, 8000]
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
+async function findBoundRelease(client, repository, tag, expectedId, operations = {}) {
+  const wait = operations.sleep || sleep
+  for (let attempt = 0; ; attempt += 1) {
+    const release = await findRelease(client, repository, tag)
+    if (release) {
+      if (releaseId(release) !== expectedId) {
+        throw new Error(`GitHub Release ID changed for exact tag ${tag}; expected ${expectedId}, found ${release.id}`)
+      }
+      return release
+    }
+    if (attempt >= boundReleaseVisibilityDelaysMs.length) {
+      const attempts = boundReleaseVisibilityDelaysMs.length + 1
+      const seconds = boundReleaseVisibilityDelaysMs.reduce((total, delay) => total + delay, 0) / 1000
+      throw new Error(
+          `GitHub Release ${expectedId} for tag ${tag} was not visible in the release list after ${attempts} attempts over ${seconds} seconds`)
+    }
+    await wait(boundReleaseVisibilityDelaysMs[attempt])
   }
-  return release
 }
 
 async function preflight(options, operations = {}) {
@@ -212,8 +241,10 @@ async function syncDraft(options, operations = {}) {
     assertReleaseIdentity(created, identity, notes)
     const createdId = releaseId(created)
     // GitHub does not make create-by-tag atomic. Re-list drafts and published
-    // releases before uploading so a concurrent same-tag create fails closed.
-    release = await findBoundRelease(client, options.repository, identity.tag, createdId)
+    // releases before uploading so a concurrent same-tag create fails closed. The
+    // create response already proved this release exists, so a list that omits it is
+    // stale rather than authoritative and is retried inside findBoundRelease.
+    release = await findBoundRelease(client, options.repository, identity.tag, createdId, operations)
   }
   assertReleaseIdentity(release, identity, notes)
   const boundId = releaseId(release)
@@ -226,7 +257,7 @@ async function syncDraft(options, operations = {}) {
   if (missing.length > 0) {
     // Reassert both exact-tag uniqueness and the bound release ID immediately
     // before asset mutation, then repeat all byte/extras checks on that object.
-    release = await findBoundRelease(client, options.repository, identity.tag, boundId)
+    release = await findBoundRelease(client, options.repository, identity.tag, boundId, operations)
     assertReleaseIdentity(release, identity, notes)
     existing = await validateDraftAssets(client, release, expectedFiles, options.assets)
     missing = expectedFiles.filter((name) => !existing.has(name))
@@ -249,7 +280,7 @@ async function syncDraft(options, operations = {}) {
 
   // Never report synchronization success if a same-tag release appeared while
   // bytes were being checked or uploaded.
-  const current = await findBoundRelease(client, options.repository, identity.tag, boundId)
+  const current = await findBoundRelease(client, options.repository, identity.tag, boundId, operations)
   assertReleaseIdentity(current, identity, notes)
   return current
 }
@@ -304,7 +335,7 @@ async function publishDraft(options, operations = {}) {
     fs.rmSync(temporary, {recursive: true, force: true})
   }
 
-  const current = await findBoundRelease(client, options.repository, identity.tag, boundId)
+  const current = await findBoundRelease(client, options.repository, identity.tag, boundId, operations)
   assertReleaseIdentity(current, identity, notes)
   const currentAssetInventory = JSON.stringify([...mapAssets(current.assets).values()]
       .map(({id, name, size, url}) => ({id, name, size, url}))

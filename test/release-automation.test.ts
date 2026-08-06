@@ -45,7 +45,10 @@ const {
   preflight: (options: Record<string, string>, operations: {client: FakeClient}) => Promise<unknown>
   publicationUpdate: (tag: string) => {draft: boolean, prerelease: boolean, make_latest: string}
   publishDraft: (options: Record<string, string>, operations: {client: FakeClient}) => Promise<unknown>
-  syncDraft: (options: Record<string, string>, operations: {client: FakeClient}) => Promise<unknown>
+  syncDraft: (
+    options: Record<string, string>,
+    operations: {client: FakeClient, sleep?: (milliseconds: number) => Promise<void>}
+  ) => Promise<unknown>
 }
 const {
   assertTargetCanary,
@@ -886,6 +889,125 @@ describe('draft release idempotency', () => {
     }, {client})).rejects.toThrow(/Release ID changed/)
     expect(client.calls.filter((call) => call.method !== 'GET').map((call) => `${call.method} ${call.url}`))
       .toEqual(['POST /repos/owner/repo/releases'])
+  })
+
+  // GitHub's release list is eventually consistent, so a release this process just
+  // created can be missing from it. The recorded lag was 2.15s here and over 5s in
+  // electron/forge 4325. These record every backoff instead of waiting, so the real
+  // bounded schedule is exercised without spending its budget.
+  const recordedDelays = () => {
+    const delays: number[] = []
+    return {delays, sleep: async (milliseconds: number) => { delays.push(milliseconds) }}
+  }
+  const staleCreate = (client: FakeClient) => {
+    let created: Record<string, any> | null = null
+    client.afterCreate = (release, fake) => {
+      created = release
+      // The replica serving the list has not caught up: it returns a complete,
+      // self-consistent, and wrong view that omits the release just created.
+      fake.releases = []
+    }
+    return {reveal: () => { client.releases = created ? [created] : [] }}
+  }
+
+  it('retries a post-create release list that is stably stale and completes once it catches up', async () => {
+    const client = new FakeClient()
+    const {delays, sleep} = recordedDelays()
+    const {reveal} = staleCreate(client)
+    // Two agreeing snapshots per attempt are exactly what the stability guard accepts,
+    // so agreement must not be read as absence of a release that provably exists.
+    // Replication catches up after the second backoff.
+    const listsBeforeCreate = 2
+    const staleAttempts = 2
+    const boundSleep = async (milliseconds: number) => {
+      await sleep(milliseconds)
+      if (delays.length === staleAttempts) reveal()
+    }
+
+    await syncDraft(
+        {tag, commit, repository: 'owner/repo', assets, sourceRoot: temporaryRoot}, {client, sleep: boundSleep})
+
+    expect(delays).toEqual([1000, 2000])
+    const listCalls = (calls: Array<{url: string}>) => calls.filter((call) => call.url.includes('/releases?')).length
+    const firstUpload = client.calls.findIndex((call) => call.url.startsWith('https://uploads.github.com/'))
+    expect(firstUpload).toBeGreaterThan(-1)
+    // Two agreeing complete snapshots for the pre-create discovery, two more for each of
+    // the three post-create visibility attempts, and two for the pre-upload recheck. No
+    // asset is written before the bound release ID is rediscovered and validated.
+    expect(listCalls(client.calls.slice(0, firstUpload)))
+      .toBe(listsBeforeCreate + (staleAttempts + 1) * 2 + 2)
+    const uploads = client.calls.filter((call) => call.url.startsWith('https://uploads.github.com/'))
+    expect(uploads).toHaveLength(fs.readdirSync(assets).length)
+    expect(uploads.every((call) => call.url.includes('/releases/7/assets'))).toBe(true)
+    expect(client.release?.assets.map((asset: ApiAsset) => asset.name).sort()).toEqual(fs.readdirSync(assets).sort())
+  })
+
+  it('fails closed without uploading when a created release never becomes visible', async () => {
+    const client = new FakeClient()
+    const {delays, sleep} = recordedDelays()
+    staleCreate(client)
+
+    const failure = await syncDraft(
+        {tag, commit, repository: 'owner/repo', assets, sourceRoot: temporaryRoot}, {client, sleep})
+        .then(() => null, (reason: Error) => reason)
+
+    expect(failure?.message)
+      .toMatch(/^GitHub Release 7 for tag v0\.2\.0-rc\.2 was not visible in the release list after 6 attempts over 23 seconds$/)
+    // The release never disappeared; only the list lagged. That wording sent the rc.3
+    // triage looking for a deletion, a token-scope defect, and list churn.
+    expect(failure?.message).not.toMatch(/disappeared/)
+    expect(delays).toEqual([1000, 2000, 4000, 8000, 8000])
+    expect(delays.reduce((total, delay) => total + delay, 0)).toBeGreaterThan(5000)
+    expect(client.calls.some((call) => call.url.startsWith('https://uploads.github.com/'))).toBe(false)
+    expect(client.calls.some((call) => ['DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+  })
+
+  it('fails a post-create release-ID substitution immediately without consuming a retry', async () => {
+    const client = new FakeClient()
+    const {delays, sleep} = recordedDelays()
+    // The created release provably exists, so a different release carrying the tag means
+    // two releases carry it. That is a duplicate, not a lagging replica.
+    client.afterCreate = (created, fake) => {
+      fake.releases = [{...created, id: 8}]
+    }
+
+    await expect(syncDraft(
+        {tag, commit, repository: 'owner/repo', assets, sourceRoot: temporaryRoot}, {client, sleep}))
+      .rejects.toThrow(/Release ID changed for exact tag v0\.2\.0-rc\.2; expected 7, found 8/)
+    expect(delays).toEqual([])
+    expect(client.calls.some((call) => call.url.startsWith('https://uploads.github.com/'))).toBe(false)
+  })
+
+  it('keeps multiple exact-tag matches and sustained list churn fatal instead of retryable', async () => {
+    const ambiguous = new FakeClient()
+    const ambiguousTimer = recordedDelays()
+    ambiguous.afterCreate = (created, fake) => {
+      fake.releases.push({...created, id: 8})
+    }
+    await expect(syncDraft(
+        {tag, commit, repository: 'owner/repo', assets, sourceRoot: temporaryRoot},
+        {client: ambiguous, sleep: ambiguousTimer.sleep}))
+      .rejects.toThrow(/Multiple GitHub Releases exist for exact tag/)
+    expect(ambiguousTimer.delays).toEqual([])
+
+    const churning = new FakeClient()
+    const churnTimer = recordedDelays()
+    // Disagreeing snapshots are an unstable list, not a stale one. The visibility retry
+    // must never mask that: only the guard's own bounded attempts apply.
+    // Request 3 is the first snapshot after the pre-create discovery and the create.
+    churning.beforeList = (requestNumber, fake) => {
+      if (requestNumber >= 3) fake.releases = [{id: 100 + requestNumber, tag_name: `v9.9.${requestNumber}`, assets: []}]
+    }
+    await expect(syncDraft(
+        {tag, commit, repository: 'owner/repo', assets, sourceRoot: temporaryRoot},
+        {client: churning, sleep: churnTimer.sleep}))
+      .rejects.toThrow(/did not repeat one stable complete snapshot/)
+    expect(churnTimer.delays).toEqual([])
+
+    for (const client of [ambiguous, churning]) {
+      expect(client.calls.some((call) => call.url.startsWith('https://uploads.github.com/'))).toBe(false)
+      expect(client.calls.some((call) => ['DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+    }
   })
 
   it('wires the exact workflow environment name through the draft-sync CLI entrypoint', () => {
