@@ -149,8 +149,15 @@ That attempt must perform no release upload, update, deletion, or publication. D
 and verify the exact four-asset draft after recovery and after the no-upload proof.
 Publication remains a later protected-environment decision. It must rediscover exactly
 one draft through authenticated pagination, bind to that release ID, verify the exact
-asset set and one successful tag-push prepare run for the tagged commit, recheck
+asset set and one allowed tag-push prepare run for the tagged commit, recheck
 uniqueness and asset inventory, and publish without rebuilding or replacing bytes.
+
+Because every recovery and no-upload-proof step above adds an attempt to that same run,
+a later attempt failing must not disqualify the draft an earlier attempt assembled.
+Publication therefore accepts a successful conclusion on any attempt of the
+manifest-named run once the run has stopped, and keeps the run identity, exact commit,
+tag-push event, workflow path, asset set, manifest, and checksum checks unchanged. Only
+the manifest's run is ever consulted, so this cannot admit assets from another run.
 
 Before any successor operation, manually compare the release workflows and record the
 event filters, top-level and job permissions, protected environments, concurrency,
