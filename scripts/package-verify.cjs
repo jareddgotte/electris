@@ -29,6 +29,25 @@ function normalizeAsarPath(filePath) {
   return filePath.replace(/^[/\\]/, '').replaceAll('\\', '/')
 }
 
+// Buffer <-> latin1 is a lossless byte mapping, so this rewrites CRLF pairs and
+// nothing else. A lone CR is deliberately left alone: it is a real content
+// difference, not a platform checkout difference.
+function normalizeNewlines(buffer) {
+  return Buffer.from(buffer.toString('latin1').replaceAll('\r\n', '\n'), 'latin1')
+}
+
+// Equal bytes always pass. A declared text asset may additionally differ by CRLF
+// versus LF alone, because Windows checkouts historically rewrote tracked text before
+// packaging and an independent verifier must still be able to reproduce this check.
+// Every other byte difference still fails, the tolerance is never applied to an asset
+// that is not declared newline-insensitive, and content holding a NUL byte is treated
+// as binary so a binary payload cannot be smuggled through a text-declared path.
+function matchesReviewedSource(actual, expected, newlineInsensitive) {
+  if (actual.equals(expected)) return true
+  if (!newlineInsensitive || actual.includes(0) || expected.includes(0)) return false
+  return normalizeNewlines(actual).equals(normalizeNewlines(expected))
+}
+
 function binaryIdentity(executablePath) {
   const bytes = fs.readFileSync(executablePath).subarray(0, 4096)
 
@@ -175,14 +194,16 @@ function verifyArtifact(artifactArgument, options = {}) {
     fail('packaged package.json identity or runtime dependency policy does not match')
   }
 
-  for (const {source, packaged, verifySource} of appFiles) {
+  for (const {source, packaged, verifySource, newlineInsensitive} of appFiles) {
     const actual = asar.extractFile(layout.asar, packaged)
     if (actual.length === 0) fail(`required application content is empty: ${packaged}`)
     // Generated bundles need not exist in a fresh checkout that is only inspecting a
     // copied artifact. Tracked assets and the project license must still match exactly.
     if (verifySource) {
       const expected = fs.readFileSync(path.join(sourceRoot, source))
-      if (!actual.equals(expected)) fail(`packaged content differs from the reviewed source: ${packaged}`)
+      if (!matchesReviewedSource(actual, expected, newlineInsensitive)) {
+        fail(`packaged content differs from the reviewed source: ${packaged}`)
+      }
     }
   }
 
@@ -210,4 +231,4 @@ function main() {
 
 if (require.main === module) main()
 
-module.exports = {binaryIdentity, expectedPackagedPackage, verifyArtifact}
+module.exports = {binaryIdentity, expectedPackagedPackage, matchesReviewedSource, verifyArtifact}

@@ -1,2 +1,30 @@
+# Tracked text must check out byte-identically on every platform. Without this, a
+# Windows checkout with core.autocrlf rewrites tracked text assets such as
+# app/css/main.css and LICENSE to CRLF, so a package built there no longer matches an
+# LF checkout and an independent verifier cannot reproduce npm run package:verify.
+* text=auto eol=lf
+
 # Windows bash scripts are also Unix LF endings
 *.sh eol=lf
+
+# Genuine binaries must never be newline-converted; converting them corrupts bytes.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.zip binary
+*.gz binary
+*.asar binary
+
+# Verbatim published-artifact fixtures. Their CRLF bytes are the evidence under test,
+# so they must reach the working tree unconverted on every platform.
+test/fixtures/published/** -text !eol
+test/fixtures/published/README.md text eol=lf

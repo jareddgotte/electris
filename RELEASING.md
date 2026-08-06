@@ -118,6 +118,8 @@ The macOS x64 and arm64 ZIPs are qualification-only workflow artifacts while uns
 
 Checksums establish downloaded-byte integrity only. They are not publisher signatures, provenance, or reproducibility claims. GitHub's generated source archives are not Electris distributables.
 
+An operator must be able to verify any published archive from any checkout, so `.gitattributes` normalizes tracked text to LF and `package:verify` accepts a CRLF/LF-only difference for the assets `scripts/package-config.cjs` declares `newlineInsensitive`, while every other verified asset stays a strict byte comparison. Published `v0.2.0-rc.3` predates that correction: its Windows archive embeds CRLF copies of `css/main.css` and `LICENSE`, so verifying it needs this repository at or after the fix. Those bytes still match `SHA256SUMS.txt` and the manifest exactly and are never replaced.
+
 ## Signing and user trust
 
 - **Linux x64:** unsigned portable archives may initially publish with truthful notes and SHA-256 evidence.

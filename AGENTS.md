@@ -30,6 +30,8 @@ This is the authoritative repository guide for contributors and coding agents. S
   typecheck, tests, smoke, documentation check, build).
 - `test/fixtures/game.ts`: reusable fixtures for characterizing production piece and
   board behavior; provides deterministic runtime dependencies and board fixtures.
+- `test/fixtures/published/`: verbatim bytes from a published release asset used as
+  line-ending regression evidence; see its `README.md` for provenance.
 
 ## Source provenance
 
@@ -53,6 +55,12 @@ copy its guidance, or import commits by assumption.
 - Node and npm versions must satisfy `package.json#engines`; `.nvmrc` selects the
   supported Node major. npm is the only package manager, and `package-lock.json` is
   the canonical lockfile.
+- Tracked text must check out identically on every platform, so `.gitattributes`
+  normalizes it to LF and marks genuine binaries. Packages built on a Windows runner
+  otherwise embed CRLF copies of tracked text assets and stop verifying from an LF
+  checkout. `package:verify` tolerates a CRLF/LF-only difference for the assets
+  `scripts/package-config.cjs` declares `newlineInsensitive`, and compares every other
+  verified asset byte for byte; do not widen that tolerance.
 
 ## Generated files
 

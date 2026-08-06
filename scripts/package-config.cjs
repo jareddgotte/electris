@@ -19,15 +19,25 @@ const targets = Object.freeze({
 // main/preload use only Electron and Node built-ins, so no external production
 // node_modules are required at runtime. Source maps and declarations are intentionally
 // omitted; renderer.js.LICENSE.txt retains generated third-party license notices.
+//
+// `newlineInsensitive` marks a tracked text asset whose packaged copy may differ from
+// the checkout by CRLF versus LF alone, so a package built on a Windows checkout stays
+// verifiable from an LF checkout and vice versa. `.gitattributes` normalizes those
+// assets at the repository boundary; this flag only keeps verification reproducible
+// across checkouts that predate or bypass it. Omitting it is the safe default: every
+// other verified asset, including the PNG, is compared byte for byte.
 const appFiles = Object.freeze([
   Object.freeze({source: 'app/main.js', packaged: 'main.js'}),
   Object.freeze({source: 'app/preload.js', packaged: 'preload.js'}),
   Object.freeze({source: 'app/renderer.js', packaged: 'renderer.js'}),
   Object.freeze({source: 'app/renderer.js.LICENSE.txt', packaged: 'renderer.js.LICENSE.txt'}),
   Object.freeze({source: 'app/renderer.html', packaged: 'renderer.html'}),
-  Object.freeze({source: 'app/css/main.css', packaged: 'css/main.css', verifySource: true}),
+  Object.freeze({
+    source: 'app/css/main.css', packaged: 'css/main.css',
+    verifySource: true, newlineInsensitive: true
+  }),
   Object.freeze({source: 'app/img/TETRIS.png', packaged: 'img/TETRIS.png', verifySource: true}),
-  Object.freeze({source: 'LICENSE', packaged: 'LICENSE', verifySource: true})
+  Object.freeze({source: 'LICENSE', packaged: 'LICENSE', verifySource: true, newlineInsensitive: true})
 ])
 
 const packageRecordName = 'electris-package.json'
