@@ -16,10 +16,13 @@ out/
 /electron/
 build/
 dist/
+/published-release-assets/
+/published-release-extract/
 /qualification-records/
 /release-assets/
 /release-staging/
 /release-work/
+/verification-records/
 built/
 electris-darwin-x64*
 electris-linux-arm64*

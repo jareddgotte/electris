@@ -20,7 +20,8 @@
     "release:archive": "node scripts/release-archive.cjs",
     "release:assemble": "node scripts/release-assets.cjs",
     "release:verify-assets": "node scripts/release-assets.cjs",
-    "release:github": "node scripts/release-github.cjs"
+    "release:github": "node scripts/release-github.cjs",
+    "release:verify-published": "node scripts/release-verify-published.cjs"
   },
   "engines": {
     "node": ">=22.13 <23",

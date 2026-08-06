@@ -17,9 +17,11 @@ This is the authoritative repository guide for contributors and coding agents. S
 - `scripts/package-*.cjs`: local package target policy, build orchestration,
   verification, and bounded artifact smoke harness.
 - `scripts/release-*.cjs`: strict release identity, portable archives, target
-  evidence, checksums/manifests, and idempotent draft/publication contracts.
-- `.github/workflows/release-*.yml`: tag-driven draft preparation and separately
-  environment-approved publish-only automation.
+  evidence, checksums/manifests, idempotent draft/publication contracts, and
+  read-only post-publication verification of an exact published release.
+- `.github/workflows/release-*.yml`: tag-driven draft preparation, separately
+  environment-approved publish-only automation, and protected-`master`-only,
+  manually dispatched post-publication verification that publishes nothing.
 - `.github/workflows/runner-qualification.yml` and
   `scripts/runner-qualification-record.cjs`: protected-`master`-only, manually
   dispatched native-runner qualification and its compact JSON evidence record.
@@ -102,6 +104,9 @@ Run commands from the repository root:
 - `npm run release:archive -- ...`, `release:assemble`, and
   `release:verify-assets` — create and verify portable target archives plus the exact
   release manifest/checksum set; see `RELEASING.md` for complete arguments and policy.
+- `npm run release:verify-published -- ...` — read-only download, asset/manifest
+  verification, and safe extraction of one already-published release, selected by exact
+  tag and release ID; see `RELEASING.md` for complete arguments and policy.
 
 For source or build configuration changes, run tests, lint, typecheck, smoke,
 documentation checks, and build. Add behavioral tests for changed behavior rather

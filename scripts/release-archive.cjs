@@ -153,4 +153,4 @@ function main() {
 
 if (require.main === module) main()
 
-module.exports = {createReleaseArchive, inspectArchive, parseOptions, sha256}
+module.exports = {createReleaseArchive, inspectArchive, parseOptions, runTar, sha256}

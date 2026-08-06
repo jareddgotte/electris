@@ -138,7 +138,24 @@ After environment approval, it revalidates tag/package/lock/note/ancestry identi
 
 Because the recovery path deliberately reruns the same run, that run's success is judged per attempt rather than by its latest attempt alone. GitHub's run object reports only the latest attempt, so a later rerun that fails would otherwise permanently block a complete draft an earlier attempt of the same run assembled. Publication accepts a successful conclusion on **any** attempt of the manifest's run, and every other check stays exactly as strict: the run must still be that one manifest-named run, an allowed tag-push preparation of the exact commit, and it must have stopped, so a run that is still active or that never succeeded on any attempt is refused. Each earlier attempt consulted must itself describe that same run and commit; a missing, unreadable, or inconsistent attempt record fails closed. Asset bytes, names, manifest, and checksums are verified independently and are not relaxed by this. It never rebuilds or replaces bytes. Prereleases remain prereleases and do not replace the latest stable release; a stable release becomes latest.
 
-Before authorizing publication, manually review the committed notes, prepare run, target evidence, exact draft downloads, unsigned warnings, and every readiness gate. After publication, download the public assets, recheck SHA-256, extract/verify, and run the bounded package smoke on each claimed host.
+Before authorizing publication, manually review the committed notes, prepare run, target evidence, exact draft downloads, unsigned warnings, and every readiness gate. After publication, download the public assets, recheck SHA-256, extract/verify, and run the bounded package smoke on each claimed host. Use the hosted verification below rather than an ad-hoc operator host.
+
+## Post-publication verification
+
+`.github/workflows/release-verify-published.yml` discharges the post-publication obligation above on real native hosts. It is manually dispatched, rejects every ref and workflow source except protected `master`, and requires an exact tag, the exact GitHub Release ID, and a typed `verify <tag> <release_id>` confirmation, so it cannot verify a release the operator did not name twice. Dispatch it only after the release is published:
+
+```text
+gh workflow run release-verify-published.yml --ref master \
+  -f tag=v<version> -f release_id=<id> -f confirmation="verify v<version> <id>"
+```
+
+Do not dispatch it from an implementing pull request; the workflow must already be on protected `master`.
+
+Its two jobs run on the claimed public target hosts, `ubuntu-latest` for Linux x64 and `windows-latest` for Windows x64. Each one revalidates the tag's committed identity, requires exactly one published, non-draft release for that exact tag whose ID matches the selector, and downloads the four public assets anonymously from their canonical `https://github.com/<owner>/<repo>/releases/download/<tag>/<name>` URLs, so it proves what the public actually receives. It then verifies asset names, sizes, SHA-256 digests, and the manifest with `release:verify-assets`; validates each archive's own structure before opening it; extracts into a fresh directory that it refuses to reuse; and verifies, runs the repository-owned bounded package smoke, and verifies again. Every mismatch fails the run.
+
+It publishes nothing and mutates nothing. `GITHUB_TOKEN` stays read-only and is used only to read the release list, no job enters an environment or reads a secret, and no step creates, updates, deletes, tags, signs, or uploads a release or asset. Each target retains only its compact JSON verification records for seven days; the downloaded assets and extracted packages stay runner-local and expire with the job.
+
+The bounded smoke asserts a matching host, so a target is verified only by its own job. Package verification compares the packaged tracked text assets against the checkout's copies, and both are subject to the runner's line-ending configuration, so a Windows job is self-consistent with a Windows checkout and cannot by itself detect line-ending drift between hosts. Read the two job logs and JSON records; this evidence covers exactly the release ID it names and authorizes no support claim.
 
 ## Failure recovery and rollback
 
@@ -170,5 +187,10 @@ The release-contract commands are:
 - `npm run release:archive -- --artifact=<path> --output=<path> --tag=<tag> --commit=<sha> --run-id=<id> --run-url=<url>`
 - `npm run release:assemble -- --input=<staging> --output=<release> --tag=<tag> --commit=<sha>`
 - `npm run release:verify-assets -- --dir=<release> --tag=<tag> --commit=<sha>`
+- `npm run release:verify-published -- download --tag=<tag> --release-id=<id> --repository=<owner/name> --output=<assets> --records=<dir>`
+- `npm run release:verify-published -- extract --tag=<tag> --commit=<sha> --target=<platform-arch> --dir=<assets> --output=<dir>`
+- `npm run release:verify-published -- record --tag=<tag> --release-id=<id> --commit=<sha> --runner=<label> --artifact=<path> --records=<dir>`
+
+`release:verify-published` reads a published release and writes only local files and compact records; it never creates, updates, deletes, or publishes anything. Its `extract` step needs an archive tool that reads that target's format, which is why each target is extracted on its own native host.
 
 `release:github` is workflow plumbing for paginated exact-tag preflight, same-run byte-idempotent draft synchronization, and publish-only revalidation bound to one release ID. It must not be used to bypass captain authorization or protected environments.
