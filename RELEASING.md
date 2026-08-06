@@ -143,7 +143,7 @@ Signing/notarization must occur before final smoke, archive, manifest, and check
 
 ## Manual publication
 
-`.github/workflows/release-publish.yml` accepts only an existing tag and an exact `publish <tag>` confirmation. Its sole job uses the protected `release-publish` environment and is the only publication path with `contents: write`.
+`.github/workflows/release-publish.yml` accepts only an existing tag and an exact `publish <tag>` confirmation, and it must be dispatched from that same tag ref: the selector, the dispatch ref, and the confirmation must all name one tag, or the run fails before checkout. The environment's `v*` deployment-tag policy alone would admit a dispatch from any release tag, and the dispatch ref is what identifies this run's target tag to preparation's refusal guard, so the three are required to agree. Its sole job uses the protected `release-publish` environment and is the only publication path with `contents: write`.
 
 After environment approval, it revalidates tag/package/lock/note/ancestry identity, requires one exact-tag draft from the authenticated paginated release list, binds verification and publication to that release ID, downloads every asset, rejects missing/extra/different assets, and verifies manifest and checksums. It publishes only when the manifest names one allowed tag-push prepare run for the exact commit that reached a successful conclusion, after a final uniqueness, release-ID, and asset-inventory check.
 

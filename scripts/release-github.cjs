@@ -299,10 +299,12 @@ async function syncDraft(options, operations = {}) {
   // publication is not recoverable without fresh authorization. The caller's own run ID
   // is excluded so no future refactor can make this guard reject itself.
   //
-  // A publication run reports its dispatch ref as head_branch, so this sees one
-  // dispatched from the tag. A dispatch from any other ref is not a publication this
-  // needs to see: the release-publish environment's `v*` deployment-tag policy keeps it
-  // out of the environment, so its job never starts and it can never write.
+  // A publication run reports its dispatch ref as head_branch, and nothing else in the
+  // workflow-run list identifies which tag that run targets. The environment's `v*`
+  // deployment-tag policy is not enough on its own, because it admits a dispatch from any
+  // `v*` tag while inputs.tag names a different one; such a run would publish this tag
+  // while this filter never saw it. release-publish.yml therefore fails closed unless its
+  // dispatch ref equals inputs.tag, which is what makes this comparison sound.
   await assertNoActiveRun(client, {
     repository: options.repository,
     workflowPath: publishPath,

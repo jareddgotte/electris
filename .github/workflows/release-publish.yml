@@ -29,11 +29,19 @@ jobs:
       actions: read
       contents: write
     steps:
-      - name: Validate selector and explicit confirmation before checkout
+      # The dispatch ref must be the selected tag, not merely some `v*` tag the
+      # environment's deployment-tag policy would also admit. GitHub reports the dispatch
+      # ref as this run's head_branch, and that is the only field identifying this run's
+      # target tag to another workflow: preparation refuses to assemble while a
+      # publication run for its tag is live, and it can only recognize one dispatched from
+      # that tag. Requiring the two to agree keeps that guard sound instead of silently
+      # missing a publication dispatched from an unrelated tag.
+      - name: Validate selector, dispatch ref, and explicit confirmation before checkout
         env:
           RELEASE_TAG: ${{ inputs.tag }}
+          DISPATCH_REF: ${{ github.ref_name }}
           CONFIRMATION: ${{ inputs.confirmation }}
-        run: node -e "if (!/^v(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*))*))?$/.test(process.env.RELEASE_TAG) || process.env.CONFIRMATION !== 'publish ' + process.env.RELEASE_TAG) throw new Error('Selector and confirmation must exactly identify one strict SemVer tag')"
+        run: node -e "if (!/^v(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*))*))?$/.test(process.env.RELEASE_TAG) || process.env.CONFIRMATION !== 'publish ' + process.env.RELEASE_TAG || process.env.DISPATCH_REF !== process.env.RELEASE_TAG) throw new Error('Selector, dispatch ref, and confirmation must exactly identify one strict SemVer tag')"
 
       - name: Check out the selected existing tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

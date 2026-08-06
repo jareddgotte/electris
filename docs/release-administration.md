@@ -136,6 +136,14 @@ a finished run. `assemble-draft` carries `actions: read` for its side of this; t
 publication job already declared it. The concurrency groups are unchanged and both keep
 `cancel-in-progress: false`.
 
+Preparation identifies a publication run by that run's ref, which is the only field in
+the workflow-run list naming the tag it targets. Dispatch a publication from the exact
+tag being published: the workflow now fails before checkout unless the selector, the
+dispatch ref, and the confirmation all name one tag. The environment's `v*`
+deployment-tag policy is not a substitute, because it admits a dispatch from any release
+tag while the selector names a different one, and preparation would then never see that
+publication.
+
 **This narrows the window; it does not close it.** Both sides read before either writes,
 so an interleaving remains reachable in the interval between a check and the following
 write, plus the undocumented staleness of GitHub's workflow-run list. Treat the refusal

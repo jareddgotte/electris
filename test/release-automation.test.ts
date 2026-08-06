@@ -542,6 +542,18 @@ describe('release workflow security contract', () => {
     expect(workflow.match(/contents: write/g)).toHaveLength(1)
     expect(workflow).toContain('actions: read')
   })
+
+  it('binds the publication dispatch ref to the selected tag', () => {
+    const workflow = fs.readFileSync(path.join(workflowsRoot, 'release-publish.yml'), 'utf8')
+
+    // head_branch is the dispatch ref, and it is the only field in the workflow-run list
+    // that identifies which tag a publication run targets. Without this equality a run
+    // dispatched from an unrelated `v*` tag would publish the selected tag while
+    // preparation's refusal guard never saw it, so the guard depends on this assertion.
+    expect(workflow).toContain('DISPATCH_REF: ${{ github.ref_name }}')
+    expect(workflow).toContain("process.env.DISPATCH_REF !== process.env.RELEASE_TAG")
+    expect(workflow).toContain('Selector, dispatch ref, and confirmation must exactly identify one strict SemVer tag')
+  })
 })
 
 describe('release note references into release administration', () => {
@@ -1352,6 +1364,42 @@ describe('draft release idempotency', () => {
     expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
   })
 
+  // Exact workflow identity, not a prefix: a neighbouring path that merely starts with
+  // the preparation workflow file is a different workflow and cannot vouch for these
+  // bytes, even when every other recorded field agrees.
+  it('rejects a manifest run whose path only shares a prefix with the prepare workflow', async () => {
+    const client = new FakeClient()
+    client.release = publishableDraft(client, 'prefix-path-rejected')
+    client.run = {
+      id: 123,
+      head_sha: commit,
+      conclusion: 'success',
+      event: 'push',
+      path: '.github/workflows/release-prepare.yml.disabled',
+      html_url: 'https://github.example/runs/123'
+    }
+    await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .rejects.toThrow(/not an allowed tag-push run/)
+    expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+  })
+
+  // GitHub reports a called reusable workflow as `<path>@<ref>`; that exact suffix form
+  // must still be accepted even though a bare prefix is not.
+  it('accepts a manifest run reported in the called-workflow <path>@<ref> form', async () => {
+    const client = new FakeClient()
+    client.release = publishableDraft(client, 'called-workflow-path-accepted')
+    client.run = {
+      id: 123,
+      head_sha: commit,
+      conclusion: 'success',
+      event: 'push',
+      path: '.github/workflows/release-prepare.yml@refs/tags/v0.2.0-rc.2',
+      html_url: 'https://github.example/runs/123'
+    }
+    await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .resolves.toMatchObject({draft: false, prerelease: true, make_latest: 'false'})
+  })
+
   // GitHub reports only the latest attempt on the run object, so a later rerun attempt
   // that fails must not poison an otherwise valid draft that an earlier attempt of that
   // same run assembled and that still verifies byte for byte against the manifest.
@@ -1651,6 +1699,7 @@ describe('bidirectional active-run refusal between preparation and publication',
       assets: releaseAssets
     }
     client.run = {
+      id: 123,
       head_sha: commit,
       conclusion: 'success',
       event: 'push',
