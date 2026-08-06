@@ -285,6 +285,48 @@ async function syncDraft(options, operations = {}) {
   return current
 }
 
+const preparePath = '.github/workflows/release-prepare.yml'
+
+function isAllowedPrepareRun(run, runId, commit, runUrl) {
+  return Boolean(run) && String(run.id) === String(runId) && run.head_sha === commit &&
+      run.event === 'push' && String(run.path || '').startsWith(preparePath) &&
+      run.html_url === runUrl
+}
+
+// GitHub's workflow-run object reports the latest attempt, so `conclusion` belongs to
+// whichever attempt ran last rather than to the attempt that assembled the draft. The
+// documented recovery path deliberately reruns the same run, so one later attempt
+// failing after an earlier one succeeded would otherwise make a complete, byte-verified
+// draft permanently unpublishable and force a new version and tag. Publication needs one
+// attempt of the manifest's exact run to have succeeded, not the last one: the draft's
+// bytes are already proven against the manifest for this exact tag and commit, and
+// synchronization only ever adds a missing asset and refuses differing bytes, so a later
+// attempt cannot change what a successful earlier attempt uploaded. Accept success on any
+// attempt of that one run while keeping every run-identity check exactly as strict, and
+// fail closed whenever an attempt record is missing, unreadable, or inconsistent.
+async function assertSuccessfulPrepareAttempt(client, owner, repo, runId, run, commit, runUrl) {
+  // Callers gate on isAllowedPrepareRun first, so `run` already is the manifest's run.
+  if (run.conclusion === 'success') return
+  // Earlier attempts only settle a run that has stopped. While an attempt is still
+  // active the run may yet write to the draft, so publication keeps refusing.
+  if (run.status !== 'completed') {
+    throw new Error('Release manifest prepare run has not completed and cannot be published against')
+  }
+  const latest = run.run_attempt
+  if (!Number.isSafeInteger(latest) || latest < 1) {
+    throw new Error('Release manifest prepare run does not report a usable attempt number')
+  }
+  for (let number = latest - 1; number >= 1; number -= 1) {
+    const attempt = await client.request('GET', `/repos/${owner}/${repo}/actions/runs/${runId}/attempts/${number}`)
+    if (!attempt || attempt.run_attempt !== number ||
+        !isAllowedPrepareRun(attempt, runId, commit, runUrl)) {
+      throw new Error(`Release manifest prepare run attempt ${number} is missing or does not describe that exact run`)
+    }
+    if (attempt.conclusion === 'success') return
+  }
+  throw new Error('Release manifest prepare run has no successful attempt for this exact commit')
+}
+
 function publicationUpdate(tag) {
   const parsed = parseReleaseTag(tag)
   const prerelease = parsed.prerelease !== null
@@ -324,13 +366,12 @@ async function publishDraft(options, operations = {}) {
     const runUrls = new Set(manifest.targets.map((entry) => entry.workflow.runUrl))
     if (runIds.size !== 1 || runUrls.size !== 1) throw new Error('Release manifest does not identify one prepare run')
     const runId = [...runIds][0]
+    const runUrl = [...runUrls][0]
     const run = await client.request('GET', `/repos/${owner}/${repo}/actions/runs/${runId}`)
-    if (!run || run.head_sha !== identity.commit || run.conclusion !== 'success' ||
-        run.event !== 'push' ||
-        !String(run.path || '').startsWith('.github/workflows/release-prepare.yml') ||
-        run.html_url !== [...runUrls][0]) {
-      throw new Error('Release manifest prepare run is not a successful allowed run for this exact commit')
+    if (!isAllowedPrepareRun(run, runId, identity.commit, runUrl)) {
+      throw new Error('Release manifest prepare run is not an allowed tag-push run for this exact commit')
     }
+    await assertSuccessfulPrepareAttempt(client, owner, repo, runId, run, identity.commit, runUrl)
   } finally {
     fs.rmSync(temporary, {recursive: true, force: true})
   }

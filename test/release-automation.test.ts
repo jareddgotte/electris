@@ -150,6 +150,7 @@ class FakeClient {
   bytes = new Map<string, Buffer>()
   calls: Array<{method: string, url: string, options: Record<string, any>}> = []
   run: Record<string, unknown> | null = null
+  runAttempts = new Map<number, Record<string, unknown> | null>()
   uploadFailure: Error | null = null
   afterCreate: ((created: Record<string, any>, client: FakeClient) => void) | null = null
   beforeList: ((requestNumber: number, client: FakeClient) => void) | null = null
@@ -176,7 +177,15 @@ class FakeClient {
       return this.releases.slice((page - 1) * perPage, page * perPage)
     }
     if (method === 'GET' && url.startsWith('asset://')) return this.bytes.get(url)
-    if (method === 'GET' && url.includes('/actions/runs/')) return this.run
+    if (method === 'GET' && url.includes('/actions/runs/')) {
+      const attempt = url.match(/\/actions\/runs\/\d+\/attempts\/(\d+)$/)
+      if (attempt) {
+        const number = Number(attempt[1])
+        if (!this.runAttempts.has(number)) throw new Error(`GitHub API GET ${url} failed (404)`)
+        return this.runAttempts.get(number) || null
+      }
+      return this.run
+    }
     if (method === 'POST' && url.endsWith('/releases')) {
       const created = {id: 7, assets: [], ...options.body}
       this.releases.push(created)
@@ -612,6 +621,26 @@ describe('draft release idempotency', () => {
     writeFile(path.join(temporaryRoot, 'docs', 'releases', `${tag}.md`), '# Candidate\n')
   })
   afterEach(() => fs.rmSync(temporaryRoot, {recursive: true, force: true}))
+
+  // A complete, byte-correct draft holding exactly the assembled asset set, so publication
+  // tests exercise the prepare-run gate rather than asset verification.
+  function publishableDraft(client: FakeClient, label: string, directory = assets) {
+    return {
+      id: 7,
+      tag_name: tag,
+      name: tag,
+      target_commitish: commit,
+      prerelease: true,
+      draft: true,
+      body: '# Candidate\n',
+      assets: fs.readdirSync(directory).sort().map((name, index) => {
+        const bytes = fs.readFileSync(path.join(directory, name))
+        const url = `asset://${label}-${index}`
+        client.bytes.set(url, bytes)
+        return {id: 20 + index, name, size: bytes.length, url}
+      })
+    }
+  }
 
   it('keeps prereleases off latest and marks a stable release latest', () => {
     expect(publicationUpdate(tag)).toEqual({draft: false, prerelease: true, make_latest: 'false'})
@@ -1229,6 +1258,7 @@ describe('draft release idempotency', () => {
       assets: releaseAssets
     }
     client.run = {
+      id: 123,
       head_sha: commit,
       conclusion: 'success',
       event: 'push',
@@ -1246,15 +1276,174 @@ describe('draft release idempotency', () => {
 
     client.run = {...client.run, event: 'workflow_dispatch'}
     await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
-      .rejects.toThrow(/not a successful allowed run/)
+      .rejects.toThrow(/not an allowed tag-push run/)
 
     client.run = {...client.run, event: 'push', head_sha: 'b'.repeat(40)}
     await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
-      .rejects.toThrow(/not a successful allowed run/)
+      .rejects.toThrow(/not an allowed tag-push run/)
 
-    client.run = {...client.run, head_sha: commit, conclusion: 'failure'}
+    client.run = {...client.run, html_url: 'https://github.example/runs/456'}
     await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
-      .rejects.toThrow(/not a successful allowed run/)
+      .rejects.toThrow(/not an allowed tag-push run/)
+
+    client.run = {...client.run, html_url: 'https://github.example/runs/123', id: 999}
+    await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .rejects.toThrow(/not an allowed tag-push run/)
+
+    client.run = {...client.run, id: 123, head_sha: commit, html_url: 'https://github.example/runs/123', conclusion: 'failure', status: 'completed', run_attempt: 1}
+    client.calls = []
+    await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .rejects.toThrow(/no successful attempt/)
+    expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+  })
+
+  // GitHub reports only the latest attempt on the run object, so a later rerun attempt
+  // that fails must not poison an otherwise valid draft that an earlier attempt of that
+  // same run assembled and that still verifies byte for byte against the manifest.
+  it('publishes a draft whose manifest run succeeded on an earlier attempt than the failed latest one', async () => {
+    const client = new FakeClient()
+    client.release = publishableDraft(client, 'attempt-recovery')
+    client.run = {
+      id: 123,
+      head_sha: commit,
+      status: 'completed',
+      conclusion: 'failure',
+      run_attempt: 3,
+      event: 'push',
+      path: '.github/workflows/release-prepare.yml',
+      html_url: 'https://github.example/runs/123'
+    }
+    client.runAttempts.set(2, {...client.run, run_attempt: 2, conclusion: 'success'})
+    client.runAttempts.set(1, {...client.run, run_attempt: 1, conclusion: 'failure'})
+
+    await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .resolves.toMatchObject({draft: false, prerelease: true, make_latest: 'false'})
+    expect(client.calls.filter((call) => call.method === 'PATCH').map((call) => call.url))
+      .toEqual(['/repos/owner/repo/releases/7'])
+    // The newest successful attempt settles the run, so no older attempt is consulted.
+    expect(client.calls.filter((call) => call.url.includes('/attempts/')).map((call) => call.url))
+      .toEqual(['/repos/owner/repo/actions/runs/123/attempts/2'])
+  })
+
+  // Accepting an earlier attempt must loosen nothing about which run the assets came from.
+  it('still binds publication to the exact run the manifest names, on every attempt', async () => {
+    const client = new FakeClient()
+    const otherRun = path.join(temporaryRoot, 'other-run')
+    assembleReleaseAssets({input: createStaging(path.join(temporaryRoot, 'other'), '456'), output: otherRun, tag, commit})
+    client.release = publishableDraft(client, 'attempt-other-run', otherRun)
+    client.run = {
+      id: 123,
+      head_sha: commit,
+      status: 'completed',
+      conclusion: 'success',
+      run_attempt: 2,
+      event: 'push',
+      path: '.github/workflows/release-prepare.yml',
+      html_url: 'https://github.example/runs/123'
+    }
+    client.runAttempts.set(1, {...client.run, run_attempt: 1, conclusion: 'success'})
+
+    await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .rejects.toThrow(/not an allowed tag-push run/)
+    expect(client.calls.filter((call) => call.url.includes('/actions/runs/')).map((call) => call.url))
+      .toEqual(['/repos/owner/repo/actions/runs/456'])
+    expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+  })
+
+  it('refuses a manifest run that never succeeded on any attempt', async () => {
+    const client = new FakeClient()
+    client.release = publishableDraft(client, 'attempt-never')
+    client.run = {
+      id: 123,
+      head_sha: commit,
+      status: 'completed',
+      conclusion: 'failure',
+      run_attempt: 3,
+      event: 'push',
+      path: '.github/workflows/release-prepare.yml',
+      html_url: 'https://github.example/runs/123'
+    }
+    client.runAttempts.set(2, {...client.run, run_attempt: 2, conclusion: 'cancelled'})
+    client.runAttempts.set(1, {...client.run, run_attempt: 1, conclusion: 'failure'})
+
+    await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .rejects.toThrow(/no successful attempt/)
+    expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+  })
+
+  it('never treats an earlier attempt as success while the manifest run is still active', async () => {
+    const client = new FakeClient()
+    client.release = publishableDraft(client, 'attempt-active')
+    client.run = {
+      id: 123,
+      head_sha: commit,
+      status: 'in_progress',
+      conclusion: null,
+      run_attempt: 2,
+      event: 'push',
+      path: '.github/workflows/release-prepare.yml',
+      html_url: 'https://github.example/runs/123'
+    }
+    client.runAttempts.set(1, {...client.run, run_attempt: 1, status: 'completed', conclusion: 'success'})
+
+    await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .rejects.toThrow(/has not completed/)
+    expect(client.calls.some((call) => call.url.includes('/attempts/'))).toBe(false)
+    expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+  })
+
+  it.each([
+    ['an unreadable attempt record', 2, null],
+    ['an attempt of a different run', 2, {id: 999}],
+    ['an attempt for a different commit', 2, {head_sha: 'b'.repeat(40)}],
+    ['an attempt from a different workflow', 2, {path: '.github/workflows/release-publish.yml'}],
+    ['an attempt whose number does not match', 2, {run_attempt: 5}]
+  ])('fails closed on %s rather than publishing', async (_label, number, overrides) => {
+    const client = new FakeClient()
+    client.release = publishableDraft(client, `attempt-malformed-${number}-${_label.replace(/\W+/g, '-')}`)
+    client.run = {
+      id: 123,
+      head_sha: commit,
+      status: 'completed',
+      conclusion: 'failure',
+      run_attempt: 3,
+      event: 'push',
+      path: '.github/workflows/release-prepare.yml',
+      html_url: 'https://github.example/runs/123'
+    }
+    client.runAttempts.set(number, overrides && {...client.run, run_attempt: number, conclusion: 'success', ...overrides})
+    client.runAttempts.set(1, {...client.run, run_attempt: 1, conclusion: 'success'})
+
+    await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .rejects.toThrow(/is missing or does not describe that exact run/)
+    expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
+  })
+
+  it('fails closed when the manifest run reports no usable attempt number or hides an attempt', async () => {
+    const client = new FakeClient()
+    client.release = publishableDraft(client, 'attempt-unusable')
+    const base = {
+      id: 123,
+      head_sha: commit,
+      status: 'completed',
+      conclusion: 'failure',
+      event: 'push',
+      path: '.github/workflows/release-prepare.yml',
+      html_url: 'https://github.example/runs/123'
+    }
+
+    for (const run_attempt of [undefined, 0, '2', 2.5]) {
+      client.run = {...base, run_attempt}
+      await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+        .rejects.toThrow(/usable attempt number/)
+    }
+
+    // A 404 on a claimed attempt propagates instead of being read as "no earlier failure".
+    client.run = {...base, run_attempt: 3}
+    client.runAttempts.set(1, {...base, run_attempt: 1, conclusion: 'success'})
+    await expect(publishDraft({tag, commit, repository: 'owner/repo', sourceRoot: temporaryRoot}, {client}))
+      .rejects.toThrow(/attempts\/2 failed \(404\)/)
+    expect(client.calls.some((call) => ['POST', 'DELETE', 'PATCH', 'PUT'].includes(call.method))).toBe(false)
   })
 
   it('ignores asynchronous GitHub digest enrichment after verifying exact asset bytes', async () => {
@@ -1276,6 +1465,7 @@ describe('draft release idempotency', () => {
       assets: releaseAssets
     }
     client.run = {
+      id: 123,
       head_sha: commit,
       conclusion: 'success',
       event: 'push',
@@ -1314,6 +1504,7 @@ describe('draft release idempotency', () => {
     }
     client.release = matching
     client.run = {
+      id: 123,
       head_sha: commit,
       conclusion: 'success',
       event: 'push',
