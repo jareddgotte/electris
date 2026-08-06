@@ -237,7 +237,12 @@ jobs:
     needs: [identity, package]
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The publication workflow declares its own repository-wide concurrency group, so
+    # GitHub never serializes it against preparation for one tag. Reading this
+    # repository's own workflow runs is what lets assembly refuse while a publication
+    # for the same tag is still live; it grants no write of any kind.
     permissions:
+      actions: read
       contents: write
     steps:
       - name: Check out validated tag
@@ -271,4 +276,10 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.identity.outputs.tag }}
           RELEASE_SHA: ${{ needs.identity.outputs.sha }}
-        run: node scripts/release-github.cjs sync-draft "--tag=$RELEASE_TAG" "--commit=$RELEASE_SHA" "--repository=$GITHUB_REPOSITORY" "--assets=release-assets"
+        run: >-
+          node scripts/release-github.cjs sync-draft
+          "--tag=$RELEASE_TAG"
+          "--commit=$RELEASE_SHA"
+          "--repository=$GITHUB_REPOSITORY"
+          "--assets=release-assets"
+          "--run-id=${{ github.run_id }}"

@@ -16,6 +16,9 @@ const {verifyReleaseSet} = require('./release-assets.cjs')
 const {partialDraftCanaryEnabled} = require('./release-canary.cjs')
 const {root} = require('./package-config.cjs')
 
+const preparePath = '.github/workflows/release-prepare.yml'
+const publishPath = '.github/workflows/release-publish.yml'
+
 function repositoryParts(repository) {
   const match = String(repository || '').match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/)
   if (!match) throw new Error('Repository must be an owner/name pair')
@@ -149,6 +152,69 @@ async function findBoundRelease(client, repository, tag, expectedId, operations 
   }
 }
 
+const workflowRunListPageSize = 100
+// A full page means more runs exist, so pagination continues. The cap only bounds a
+// pathological list; ten full pages is a thousand runs of one release workflow, far
+// beyond anything this repository can accumulate, and exceeding it refuses rather than
+// acting on a list that was never completely read.
+const workflowRunListPageLimit = 10
+
+async function listWorkflowRuns(client, repository, workflowFile) {
+  const {owner, repo} = repositoryParts(repository)
+  const runs = []
+  for (let page = 1; ; page += 1) {
+    const response = await client.request(
+        'GET',
+        `/repos/${owner}/${repo}/actions/workflows/${workflowFile}/runs?per_page=${workflowRunListPageSize}&page=${page}`)
+    const batch = response?.workflow_runs
+    if (!Array.isArray(batch)) throw new Error(`GitHub workflow run list for ${workflowFile} is not an array`)
+    runs.push(...batch)
+    if (batch.length < workflowRunListPageSize) return runs
+    if (page >= workflowRunListPageLimit) {
+      throw new Error(
+          `GitHub workflow run list for ${workflowFile} exceeded ${workflowRunListPageLimit} pages; refusing to act on an incompletely read list`)
+    }
+  }
+}
+
+// GitHub reports a called reusable workflow as `<path>@<ref>`. Every other run reports
+// the file path itself, so require equality or that exact suffix form: a prefix test
+// would also accept a neighbouring path such as `<path>.disabled`, which is a different
+// workflow and must never be read as this one.
+function runUsesWorkflow(run, workflowPath) {
+  const runPath = String(run?.path || '')
+  return runPath === workflowPath || runPath.startsWith(`${workflowPath}@`)
+}
+
+// The two release workflows carry distinct repository-wide concurrency groups, so GitHub
+// never serializes preparation against publication for one tag. Neither side may queue
+// behind the other either: an unapproved publication holds its slot for up to 30 days
+// while the target artifacts a preparation rerun needs expire at 14, so a shared group
+// would starve the same-run recovery contract instead of protecting it. Each side
+// therefore refuses, loudly and immediately, while any run of the other workflow for the
+// exact tag is non-terminal. This narrows the window to the interval before the next
+// write plus workflow-run list staleness; it does not close it mechanically.
+//
+// Terminality is `status === 'completed'` rather than an allowlist of active statuses.
+// GitHub's run-status enum has grown over time (`waiting`, `pending`, and `requested`
+// arrived after the original set), so an allowlist would silently fail open the next
+// time it grows, and a response missing a status fails closed here instead.
+async function assertNoActiveRun(client, options) {
+  const {repository, workflowPath, tag} = options
+  const workflowFile = workflowPath.split('/').pop()
+  const excludeRunId = options.excludeRunId === undefined || options.excludeRunId === null
+    ? null
+    : String(options.excludeRunId)
+  const active = (await listWorkflowRuns(client, repository, workflowFile)).filter((run) =>
+    run.head_branch === tag && runUsesWorkflow(run, workflowPath) && run.status !== 'completed' &&
+      (excludeRunId === null || String(run.id) !== excludeRunId))
+  if (active.length > 0) {
+    const described = active.map((run) => `${run.id} (${run.status})`).join(', ')
+    throw new Error(
+        `Refusing to act on ${tag} while ${workflowFile} ${active.length === 1 ? 'run' : 'runs'} ${described} ${active.length === 1 ? 'is' : 'are'} not terminal`)
+  }
+}
+
 async function preflight(options, operations = {}) {
   const parsed = parseReleaseTag(options.tag)
   const identity = {
@@ -227,6 +293,24 @@ async function syncDraft(options, operations = {}) {
   const notes = fs.readFileSync(releaseNotesPath(identity.tag, sourceRoot), 'utf8')
   const client = operations.client || githubClient()
   const {owner, repo} = repositoryParts(options.repository)
+  // Refuse before discovery, so a live publication for this tag stops assembly ahead of
+  // any create, upload, or other write. Publication has priority: a refused assembly is
+  // fully recoverable by rerunning this same run, while a cancelled or superseded
+  // publication is not recoverable without fresh authorization. The caller's own run ID
+  // is excluded so no future refactor can make this guard reject itself.
+  //
+  // A publication run reports its dispatch ref as head_branch, and nothing else in the
+  // workflow-run list identifies which tag that run targets. The environment's `v*`
+  // deployment-tag policy is not enough on its own, because it admits a dispatch from any
+  // `v*` tag while inputs.tag names a different one; such a run would publish this tag
+  // while this filter never saw it. release-publish.yml therefore fails closed unless its
+  // dispatch ref equals inputs.tag, which is what makes this comparison sound.
+  await assertNoActiveRun(client, {
+    repository: options.repository,
+    workflowPath: publishPath,
+    tag: identity.tag,
+    excludeRunId: options.runId
+  })
   let release = await findRelease(client, options.repository, identity.tag)
   if (!release) {
     const created = await client.request('POST', `/repos/${owner}/${repo}/releases`, {body: {
@@ -285,11 +369,9 @@ async function syncDraft(options, operations = {}) {
   return current
 }
 
-const preparePath = '.github/workflows/release-prepare.yml'
-
 function isAllowedPrepareRun(run, runId, commit, runUrl) {
   return Boolean(run) && String(run.id) === String(runId) && run.head_sha === commit &&
-      run.event === 'push' && String(run.path || '').startsWith(preparePath) &&
+      run.event === 'push' && runUsesWorkflow(run, preparePath) &&
       run.html_url === runUrl
 }
 
@@ -346,6 +428,13 @@ async function publishDraft(options, operations = {}) {
   }
   const client = operations.client || githubClient()
   const {owner, repo} = repositoryParts(options.repository)
+  // Fail fast before any verification work: a preparation rerun for this tag can still be
+  // mutating the very asset set this run is about to download and compare.
+  await assertNoActiveRun(client, {
+    repository: options.repository,
+    workflowPath: preparePath,
+    tag: identity.tag
+  })
   const release = await findRelease(client, options.repository, identity.tag)
   if (!release) throw new Error(`Draft release does not exist: ${identity.tag}`)
   const notes = fs.readFileSync(releaseNotesPath(identity.tag, options.sourceRoot || root), 'utf8')
@@ -384,6 +473,14 @@ async function publishDraft(options, operations = {}) {
   if (currentAssetInventory !== verifiedAssetInventory) {
     throw new Error('Draft release assets changed during publication verification')
   }
+  // Re-check immediately before the only write. The pre-verification check cannot see a
+  // preparation rerun that started after it, and verification takes long enough for one
+  // to start; this leaves the residual window at the PATCH itself plus list staleness.
+  await assertNoActiveRun(client, {
+    repository: options.repository,
+    workflowPath: preparePath,
+    tag: identity.tag
+  })
   return client.request('PATCH', `/repos/${owner}/${repo}/releases/${boundId}`, {
     body: publicationUpdate(identity.tag)
   })
@@ -394,20 +491,30 @@ function parseOptions(args) {
   if (!['preflight', 'sync-draft', 'publish'].includes(command)) return null
   const values = {}
   for (const argument of rest) {
-    const match = argument.match(/^--(tag|commit|repository|assets)=(.*)$/)
+    const match = argument.match(/^--(tag|commit|repository|assets|run-id)=(.*)$/)
     if (!match || !match[2] || Object.hasOwn(values, match[1])) return null
     values[match[1]] = match[2]
   }
   if (!values.tag || !values.commit || !values.repository) return null
-  if (command === 'sync-draft' && !values.assets) return null
-  if (command !== 'sync-draft' && values.assets) return null
-  return {command, ...values}
+  // Draft synchronization must know its own run so its refusal guard can never reject the
+  // run issuing it; the other commands have no such caller identity and must not accept
+  // one.
+  if (command === 'sync-draft' && (!values.assets || !values['run-id'])) return null
+  if (command !== 'sync-draft' && (values.assets || values['run-id'])) return null
+  return {
+    command,
+    tag: values.tag,
+    commit: values.commit,
+    repository: values.repository,
+    ...(values.assets ? {assets: values.assets} : {}),
+    ...(values['run-id'] ? {runId: values['run-id']} : {})
+  }
 }
 
 async function main() {
   const options = parseOptions(process.argv.slice(2))
   if (!options) {
-    console.error('Usage: release:github -- <preflight|sync-draft|publish> --tag=<tag> --commit=<sha> --repository=<owner/name> [--assets=<dir>]')
+    console.error('Usage: release:github -- <preflight|sync-draft|publish> --tag=<tag> --commit=<sha> --repository=<owner/name> [--assets=<dir> --run-id=<id>]')
     process.exitCode = 2
     return
   }
@@ -427,6 +534,7 @@ async function main() {
 if (require.main === module) void main()
 
 module.exports = {
+  assertNoActiveRun,
   assertReleaseIdentity,
   findRelease,
   githubClient,

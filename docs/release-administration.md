@@ -117,21 +117,68 @@ required package artifact is absent, the run/tag/head does not match, or rerunni
 failed jobs cannot reach assembly, stop. Correct the source if necessary and propose a
 new SemVer/tag; do not rebuild under a fresh run and call it byte recovery.
 
+### Concurrent preparation and publication for one tag
+
+That wait is now also enforced in both directions, because the two workflows carry
+distinct repository-wide concurrency groups and GitHub therefore never serializes them
+against each other:
+
+- draft assembly refuses, before it discovers or creates anything, while any
+  `release-publish.yml` run for the exact tag is non-terminal, including one waiting for
+  environment approval; and
+- publication refuses while any `release-prepare.yml` run for the exact tag is
+  non-terminal, checked once before it downloads any asset and again immediately before
+  the write that publishes the draft.
+
+Each refusal names every offending run and its status and writes nothing. Terminality is
+tested as `status == "completed"`, so a status GitHub adds later cannot be mistaken for
+a finished run. `assemble-draft` carries `actions: read` for its side of this; the
+publication job already declared it. The concurrency groups are unchanged and both keep
+`cancel-in-progress: false`.
+
+Preparation identifies a publication run by that run's ref, which is the only field in
+the workflow-run list naming the tag it targets. Dispatch a publication from the exact
+tag being published: the workflow now fails before checkout unless the selector, the
+dispatch ref, and the confirmation all name one tag. The environment's `v*`
+deployment-tag policy is not a substitute, because it admits a dispatch from any release
+tag while the selector names a different one, and preparation would then never see that
+publication.
+
+**This narrows the window; it does not close it.** Both sides read before either writes,
+so an interleaving remains reachable in the interval between a check and the following
+write, plus the undocumented staleness of GitHub's workflow-run list. Treat the refusal
+as a loud backstop for an operator mistake, not as proof the two workflows cannot
+overlap, and keep following the wait rule above. End-to-end behaviour under a real
+concurrent run is unproven here and belongs to a separately authorized successor canary;
+do not create a tag or dispatch a release workflow to test it.
+
+When a preparation rerun is refused because an unapproved publication run for that tag is
+still waiting, there are exactly two acceptable remedies, and both are visible acts:
+cancel that publication run — nothing has been published and the authorization can be
+re-issued — or wait for it to be approved and reach a terminal conclusion, then rerun.
+Do not merge the two concurrency groups to make the wait implicit: an unapproved
+publication holds its slot for up to 30 days while `release-target-*` artifacts expire
+after 14, so queueing a rerun behind it would silently starve the same-run recovery
+contract, and a queued run can additionally be cancelled and replaced when a newer run
+joins its group.
+
 A separately authorized partial-upload canary for a successor requires another focused
 change that retargets the inert exact-value hooks. After the assembly job intentionally
 stops, remove its temporary variable and prove all canary variables absent. Then use
 `gh run rerun "$run_id" --repo "$repo" --failed` so only the failed assembly path is
 retried against successful package artifacts from that run. Synchronization must:
 
-1. search every authenticated release-list page for exact `tag_name` matches, acting
+1. refuse before any discovery or write while a `release-publish.yml` run for the exact
+   tag is non-terminal;
+2. search every authenticated release-list page for exact `tag_name` matches, acting
    only after two consecutive complete list snapshots agree on the same ordered,
    duplicate-free release IDs and refusing to act under sustained list churn;
-2. require zero or one candidate before creation and exactly the created release ID
+3. require zero or one candidate before creation and exactly the created release ID
    afterward, retrying only a stale list that omits an ID this run already holds, on a
    bounded schedule that fails closed without uploading if the release never appears;
-3. recheck exact-tag uniqueness and the bound ID before asset upload and before reporting success;
-4. validate all existing asset names, sizes, and bytes before writing any missing file; and
-5. stop without upload, replacement, deletion, or publication on ambiguity or byte drift.
+4. recheck exact-tag uniqueness and the bound ID before asset upload and before reporting success;
+5. validate all existing asset names, sizes, and bytes before writing any missing file; and
+6. stop without upload, replacement, deletion, or publication on ambiguity or byte drift.
 
 After successful recovery, a separately authorized no-upload proof may rerun the
 successful assembly job within the same workflow run:
@@ -147,10 +194,12 @@ gh run rerun "$run_id" --repo "$repo" --job "$assemble_job_id"
 
 That attempt must perform no release upload, update, deletion, or publication. Download
 and verify the exact four-asset draft after recovery and after the no-upload proof.
-Publication remains a later protected-environment decision. It must rediscover exactly
-one draft through authenticated pagination, bind to that release ID, verify the exact
-asset set and one allowed tag-push prepare run for the tagged commit, recheck
-uniqueness and asset inventory, and publish without rebuilding or replacing bytes.
+Publication remains a later protected-environment decision. It must refuse while any
+`release-prepare.yml` run for the exact tag is non-terminal, rediscover exactly one
+draft through authenticated pagination, bind to that release ID, verify the exact asset
+set and one successful, allowed tag-push prepare run for the tagged commit, recheck
+uniqueness, asset inventory, and preparation-run terminality, and publish without
+rebuilding or replacing bytes.
 
 Because every recovery and no-upload-proof step above adds an attempt to that same run,
 a later attempt failing must not disqualify the draft an earlier attempt assembled.
