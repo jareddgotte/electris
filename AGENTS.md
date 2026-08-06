@@ -30,6 +30,8 @@ This is the authoritative repository guide for contributors and coding agents. S
   typecheck, tests, smoke, documentation check, build).
 - `test/fixtures/game.ts`: reusable fixtures for characterizing production piece and
   board behavior; provides deterministic runtime dependencies and board fixtures.
+- `test/fixtures/published/`: verbatim bytes from a published release asset used as
+  line-ending regression evidence; see its `README.md` for provenance.
 
 ## Source provenance
 
